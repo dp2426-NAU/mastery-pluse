@@ -37,8 +37,8 @@
         });
         const data = await res.json();
         if (!res.ok) { err.textContent = data.error || 'Login failed.'; return; }
-        localStorage.setItem('mp_token', data.token);
-        localStorage.setItem('mp_user', JSON.stringify(data.user));
+        sessionStorage.setItem('mp_token', data.token);
+        sessionStorage.setItem('mp_user', JSON.stringify(data.user));
         window.location.href = '/student/practice.html';
       } catch (e2) {
         err.textContent = 'Could not reach the server.';

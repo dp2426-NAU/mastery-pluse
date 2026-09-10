@@ -1,11 +1,11 @@
 (function () {
-  const token = localStorage.getItem('mp_token');
-  const user = JSON.parse(localStorage.getItem('mp_user') || 'null');
+  const token = sessionStorage.getItem('mp_token');
+  const user = JSON.parse(sessionStorage.getItem('mp_user') || 'null');
   if (!token || !user || user.role !== 'instructor') { window.location.href = '/instructor/login.html'; return; }
 
   document.getElementById('whoami').textContent = user.name;
   document.getElementById('logoutBtn').onclick = () => {
-    localStorage.removeItem('mp_token'); localStorage.removeItem('mp_user');
+    sessionStorage.removeItem('mp_token'); sessionStorage.removeItem('mp_user');
     window.location.href = '/instructor/login.html';
   };
 
