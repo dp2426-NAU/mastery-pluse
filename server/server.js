@@ -334,8 +334,9 @@ app.post('/api/instructor/remediate', requireRole('instructor'), (req, res) => {
 // ---------- Socket.IO ----------
 // userId -> Set of live socket ids (a student can have >1 tab open)
 const onlineStudents = new Map();
-// userId -> { studentId, studentName, topicKey, topicName, answered, total } while an exam is in progress
+// userId -> { studentId, studentName, topicKey, topicName, answered, total, quizTrail } while an exam is in progress
 const activeExams = new Map();
+const getQuizCorrectIndex = db.prepare("SELECT correct_index FROM items WHERE id = ? AND type = 'quiz'");
 
 function broadcastOnline() {
   // Both rooms care: instructors see it as a headcount, students see it as
@@ -366,7 +367,7 @@ io.on('connection', (socket) => {
   broadcastOnline();
 
   socket.on('exam:start', ({ topicKey, topicName, total }) => {
-    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0 };
+    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0, quizTrail: [] };
     activeExams.set(userId, state);
     io.to('instructors').emit('presence:progress', state);
   });
@@ -375,6 +376,21 @@ io.on('connection', (socket) => {
     const state = activeExams.get(userId);
     if (!state) return;
     state.answered = answered;
+    io.to('instructors').emit('presence:progress', state);
+  });
+
+  // Quiz items only — grade server-side the instant an option is picked and
+  // relay just a correct/incorrect flag. Task/Q&A have no objective answer
+  // until they're graded, so there's nothing meaningful to show live for those.
+  socket.on('exam:answer', ({ itemId, selectedIndex }) => {
+    const state = activeExams.get(userId);
+    const item = getQuizCorrectIndex.get(itemId);
+    if (!state || !item) return;
+    const correct = Number(selectedIndex) === item.correct_index;
+    if (!state.quizTrail) state.quizTrail = [];
+    const existing = state.quizTrail.findIndex((q) => q.itemId === itemId);
+    if (existing >= 0) state.quizTrail[existing] = { itemId, correct };
+    else state.quizTrail.push({ itemId, correct });
     io.to('instructors').emit('presence:progress', state);
   });
 

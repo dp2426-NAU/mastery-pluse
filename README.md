@@ -47,7 +47,7 @@ Open the instructor dashboard in one tab and a student login in another (or inco
 
 Everything below fires over the same Socket.IO connection used for the heatmap — there's no polling, no refresh button.
 
-- **Live-while-typing progress**: the instant a student opens an exam, the instructor dashboard shows a presence chip — `Aiden Cross — Networking (3/8)` — that advances with every question answered, *before* the student submits.
+- **Live-while-typing progress**: the instant a student opens an exam, the instructor dashboard shows a presence chip — `Aiden Cross — Networking (3/8)` — that advances with every question answered, *before* the student submits. For quiz questions specifically, a row of ✓/✗ dots grows next to their name too — each one graded server-side the instant it's picked, so the instructor can watch right/wrong happen live, not just "answered." (Task and Q&A items don't get this — there's no objective right answer to flash until they're actually graded.)
 - **Flash + toast on every change**: a submission doesn't just silently update a number. The exact heatmap cell that changed glows, and a toast slides in ("Aiden Cross submitted Networking — 62%"), so a live update is impossible to miss mid-demo.
 - **Live activity feed**: a scrolling ticker on the instructor dashboard logs every submission and every Q&A grade the moment it happens, each with a timestamp.
 - **Connection badge**: both panels show a `● Live` / `● Reconnecting…` badge in the top bar, so you can point at proof the socket is actually connected.

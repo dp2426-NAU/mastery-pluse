@@ -36,6 +36,14 @@
   .presence-chip .dot{ width:7px; height:7px; border-radius:50%; background:var(--warn); animation:pulse 1.3s infinite; }
   .presence-chip .bar{ width:52px; height:5px; border-radius:3px; background:var(--line); overflow:hidden; }
   .presence-chip .bar > span{ display:block; height:100%; background:var(--warn); transition:width .3s ease; }
+  .presence-chip .trail{ display:inline-flex; gap:3px; margin-left:2px; }
+  .trail-dot{
+    width:8px; height:8px; border-radius:50%; flex-shrink:0;
+    animation:dot-in .25s ease-out;
+  }
+  .trail-dot.good{ background:var(--good); }
+  .trail-dot.bad{ background:var(--bad); }
+  @keyframes dot-in{ from{ transform:scale(0); } to{ transform:scale(1); } }
 
   .feed{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; max-height:220px; overflow-y:auto; }
   .feed-item{

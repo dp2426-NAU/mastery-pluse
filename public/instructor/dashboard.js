@@ -241,8 +241,11 @@
     if (activeByStudent.size === 0) { activeChipsEl.innerHTML = ''; return; }
     activeChipsEl.innerHTML = [...activeByStudent.values()].map(p => {
       const pct = p.total ? Math.round((p.answered / p.total) * 100) : 0;
+      // Quiz items are graded server-side the instant they're picked, so this
+      // trail shows correct/incorrect live — before the student ever submits.
+      const trail = (p.quizTrail || []).map(q => `<span class="trail-dot ${q.correct ? 'good' : 'bad'}" title="${q.correct ? 'Correct' : 'Incorrect'}"></span>`).join('');
       return `<span class="presence-chip"><span class="dot"></span>${p.studentName} — ${p.topicName} (${p.answered}/${p.total})
-        <span class="bar"><span style="width:${pct}%"></span></span></span>`;
+        <span class="bar"><span style="width:${pct}%"></span></span>${trail ? `<span class="trail">${trail}</span>` : ''}</span>`;
     }).join(' ');
   }
 

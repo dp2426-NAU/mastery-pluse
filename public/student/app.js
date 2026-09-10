@@ -80,6 +80,9 @@
           b.classList.add('selected');
           card.dataset.selectedIndex = i;
           onChange();
+          // Graded server-side instantly — the instructor sees a ✓/✗ trail
+          // next to this student's name as they pick, not just an answered-count.
+          socket.emit('exam:answer', { itemId: item.id, selectedIndex: i });
         };
         optsWrap.appendChild(b);
       });
