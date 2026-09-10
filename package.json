@@ -5,6 +5,7 @@
   "main": "server/server.js",
   "scripts": {
     "seed": "node server/seed.js",
+    "seed:demo": "node server/seed-demo-data.js",
     "start": "node server/server.js",
     "dev": "node server/seed.js && node server/server.js"
   },

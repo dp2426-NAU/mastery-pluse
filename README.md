@@ -22,9 +22,15 @@ This is a deliberate mixed-grading design: quiz and task stay fully real-time, w
 
 ```bash
 npm install
-npm run seed     # creates the SQLite DB, topics/items, and demo accounts
-npm start          # starts the server on http://localhost:3000
+npm run seed        # creates the SQLite DB, topics/items, and demo accounts
+npm run seed:demo   # optional: populates realistic scores/misconceptions/pending Q&A
+                     # without taking any exams through the UI — see below
+npm start            # starts the server on http://localhost:3000
 ```
+
+### Seeing a populated instructor dashboard without taking exams yourself
+
+`npm run seed:demo` inserts realistic submissions directly into the database for 8 of the 10 demo students, across all 5 topics — varied per-student/per-topic scores, a natural spread of misconceptions (so the leaderboard has real rankings), a pending Q&A queue, and one remediation-with-before/after-impact already recorded per weak topic. `student9` and `student10` are left untouched so the heatmap still shows a realistic mix of attempted and "—" cells. It's safe to re-run — it only adds more activity, same as students retaking exams for real.
 
 ## Demo credentials
 
