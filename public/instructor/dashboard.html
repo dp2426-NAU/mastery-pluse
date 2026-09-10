@@ -46,6 +46,40 @@
   .feed-item:last-child{ border-bottom:none; }
   .feed-item .time{ font-family:var(--mono); font-size:.7rem; color:var(--text-muted); white-space:nowrap; }
 
+  .event-bar{ position:fixed; top:0; left:0; right:0; height:4px; background:transparent; z-index:60; pointer-events:none; opacity:0; }
+  .event-bar.flash{ opacity:1; animation:bar-flash 1s ease-out; }
+  @keyframes bar-flash{ 0%{ opacity:1; } 100%{ opacity:0; } }
+
+  .sound-toggle{
+    width:auto; margin:0; padding:4px 10px; font-size:.72rem; background:var(--surface); color:var(--text-muted);
+    border:1px solid var(--line); border-radius:999px;
+  }
+  .sound-toggle.on{ color:var(--good); border-color:rgba(51,197,142,.4); }
+
+  .section-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .export-btn{
+    width:auto; margin:0; padding:6px 12px; font-size:.76rem; background:var(--surface-2); color:var(--text);
+    border:1px solid var(--line);
+  }
+
+  .leaderboard{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; }
+  .leaderboard-item{
+    display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); font-size:.86rem;
+  }
+  .leaderboard-item:last-child{ border-bottom:none; }
+  .leaderboard-item .rank{ font-family:var(--mono); color:var(--text-muted); width:26px; flex-shrink:0; }
+  .leaderboard-item .tag-name{ flex:1; text-transform:capitalize; }
+  .leaderboard-item .topic-name{ font-family:var(--mono); font-size:.72rem; color:var(--text-muted); }
+  .leaderboard-item .count{ font-family:var(--mono); font-size:.76rem; color:var(--bad); white-space:nowrap; }
+
+  .impact-list{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; }
+  .impact-item{ padding:12px 0; border-bottom:1px solid var(--line); font-size:.86rem; }
+  .impact-item:last-child{ border-bottom:none; }
+  .impact-item .time{ font-family:var(--mono); font-size:.7rem; color:var(--text-muted); }
+  .impact-numbers{ display:flex; justify-content:space-between; margin-top:4px; font-family:var(--mono); font-size:.85rem; }
+  .impact-numbers .delta.good{ color:var(--good); }
+  .impact-numbers .delta.bad{ color:var(--bad); }
+
   .qa-queue{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; }
   .qa-item{ padding:14px 0; border-bottom:1px solid var(--line); }
   .qa-item:last-child{ border-bottom:none; }
@@ -75,19 +109,32 @@
     <span class="brand">Mastery Pulse · Instructor</span>
     <span><span class="who" id="whoami"></span><button class="logout" id="logoutBtn">Sign out</button></span>
   </div>
+  <div class="event-bar" id="eventBar"></div>
   <div class="wrap">
     <div class="presence-row">
       <span><span class="online-count" id="onlineCount">0</span> student(s) online</span>
       <span id="activeChips"></span>
+      <button class="sound-toggle" id="soundToggle">🔈 Enable sound</button>
     </div>
 
     <p class="section-title"><span class="live-dot"></span>Live Activity</p>
     <p class="section-sub">Streams in the instant a student submits or a Q&amp;A gets graded — nothing here needs a refresh.</p>
     <div class="feed" id="activityFeed"><p class="empty">Waiting for activity…</p></div>
 
-    <p class="section-title"><span class="live-dot"></span>Weak-Topic Heatmap</p>
+    <p class="section-title section-head">
+      <span><span class="live-dot"></span>Weak-Topic Heatmap</span>
+      <button class="export-btn" id="exportCsvBtn">⬇ Export CSV</button>
+    </p>
     <p class="section-sub">Each cell is a student's score for that topic (quiz + task, auto-graded). Click a cell for the full breakdown. Updates live as exams are submitted.</p>
     <div id="heatmapArea"></div>
+
+    <p class="section-title" style="margin-top:30px;">Class-wide Misconceptions</p>
+    <p class="section-sub">Ranked across every topic — the clearest signal of what to re-teach next, not just which column is red.</p>
+    <div class="leaderboard" id="misconceptionBoard"></div>
+
+    <p class="section-title" style="margin-top:30px;">Remediation Impact</p>
+    <p class="section-sub">Class average for a topic right before a remediation was sent, vs. since.</p>
+    <div class="impact-list" id="remediationImpact"></div>
 
     <p class="section-title" style="margin-top:30px;">Pending Q&amp;A review</p>
     <p class="section-sub">Free-text answers aren't auto-graded — score them here and the heatmap updates immediately.</p>

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   response_text TEXT,         -- task / qa
   auto_score INTEGER,         -- 0-100, null until graded (qa starts null)
   misconception_tag TEXT,     -- quiz, only set when wrong
+  confidence INTEGER,         -- 1-5, student's self-rated confidence at answer time
   status TEXT NOT NULL DEFAULT 'graded' CHECK(status IN ('graded','pending_review')),
   exam_run INTEGER NOT NULL,  -- groups items submitted together as one exam
   ts TEXT NOT NULL DEFAULT (datetime('now'))
@@ -54,8 +55,19 @@ CREATE TABLE IF NOT EXISTS remediations (
   topic_id INTEGER NOT NULL REFERENCES topics(id),
   item_ids TEXT NOT NULL, -- JSON array of item ids
   message TEXT NOT NULL,
+  before_avg REAL,         -- class average for the topic at the moment remediation was sent
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
+
+// Lightweight migration: CREATE TABLE IF NOT EXISTS won't add columns to a
+// table that already existed under an older schema (e.g. a dev's local db
+// file from before this column was added). Patch it in if missing.
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+ensureColumn('submissions', 'confidence', 'confidence INTEGER');
+ensureColumn('remediations', 'before_avg', 'before_avg REAL');
 
 module.exports = db;

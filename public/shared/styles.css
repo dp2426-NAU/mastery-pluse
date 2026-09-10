@@ -61,6 +61,10 @@ a{ color:var(--accent); }
 .conn-badge.down{ border-color:rgba(226,88,63,.4); color:var(--bad); }
 .conn-badge.down .dot{ background:var(--bad); animation:pulse .8s infinite; }
 
+.online-ticker{
+  font-family:var(--mono); font-size:.72rem; color:var(--text-muted); margin-right:12px;
+}
+
 /* ---- toast stack ---- */
 .toast-stack{
   position:fixed; top:16px; right:16px; z-index:50; display:flex; flex-direction:column;

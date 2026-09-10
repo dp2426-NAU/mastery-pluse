@@ -18,6 +18,17 @@
   const socket = io({ auth: { token } });
   attachLiveBadge(socket);
 
+  // "N students online right now" — the same headcount the instructor sees,
+  // anonymized, shown next to this student's connection badge.
+  const onlineTicker = document.createElement('span');
+  onlineTicker.className = 'online-ticker';
+  onlineTicker.hidden = true;
+  document.getElementById('whoami').parentNode.insertBefore(onlineTicker, document.getElementById('whoami'));
+  socket.on('presence:online', ({ count }) => {
+    onlineTicker.hidden = false;
+    onlineTicker.textContent = `${count} student${count === 1 ? '' : 's'} online`;
+  });
+
   socket.on('remediation:new', (r) => {
     showToast(`📌 Your instructor added practice for ${r.topicName} — check your dashboard.`, 'good');
     // Only re-render immediately if we're sitting on the topics screen;
@@ -79,14 +90,62 @@
       ta.oninput = () => { card.dataset.text = ta.value; onChange(); };
       card.appendChild(ta);
     }
+
+    // Confidence self-rating — lets the instructor spot the difference
+    // between "wrong, and knew it" and "wrong, but sure they were right."
+    card.dataset.confidence = '3';
+    const confWrap = document.createElement('div');
+    confWrap.className = 'confidence';
+    confWrap.innerHTML = `
+      <label>How sure are you? <span class="confidence-label">Somewhat sure</span></label>
+      <input type="range" min="1" max="5" value="3" class="confidence-slider">
+    `;
+    const slider = confWrap.querySelector('.confidence-slider');
+    const labelEl = confWrap.querySelector('.confidence-label');
+    const CONF_WORDS = { 1: 'Just guessing', 2: 'Not very sure', 3: 'Somewhat sure', 4: 'Fairly confident', 5: 'Very confident' };
+    slider.oninput = () => {
+      card.dataset.confidence = slider.value;
+      labelEl.textContent = CONF_WORDS[slider.value];
+    };
+    card.appendChild(confWrap);
+
     card.dataset.itemId = item.id;
     card.dataset.type = item.type;
     container.appendChild(card);
   }
 
+  let timerInterval = null;
+  function clearExamTimer() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  }
+
+  function startExamTimer(seconds, onExpire) {
+    clearExamTimer();
+    const el = document.getElementById('examTimer');
+    let remaining = seconds;
+    const render = () => {
+      const m = Math.floor(remaining / 60), s = remaining % 60;
+      el.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      el.classList.toggle('warn', remaining <= 60 && remaining > 20);
+      el.classList.toggle('critical', remaining <= 20);
+    };
+    render();
+    timerInterval = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) { clearExamTimer(); el.textContent = '0:00'; onExpire(); return; }
+      render();
+    }, 1000);
+  }
+
   function buildExamView(data, submitFn, topicKey) {
     bannerArea.style.display = 'none';
-    view.innerHTML = `<h2 style="font-family:var(--serif); margin-bottom:16px;">${data.topicName}</h2><div id="items"></div><div class="submit-row"><button id="submitExam">Submit</button></div>`;
+    view.innerHTML = `
+      <div class="exam-head">
+        <h2 style="font-family:var(--serif); margin:0;">${data.topicName}</h2>
+        <div class="exam-timer" id="examTimer">--:--</div>
+      </div>
+      <div id="items"></div>
+      <div class="submit-row"><button id="submitExam">Submit</button></div>`;
     const itemsEl = document.getElementById('items');
 
     // Tell the instructor dashboard this student is starting — it lights up
@@ -105,10 +164,15 @@
     };
 
     data.items.forEach(it => renderItemInput(it, itemsEl, reportProgress));
-    document.getElementById('submitExam').onclick = async () => {
+
+    let submitted = false;
+    const doSubmit = async () => {
+      if (submitted) return;
+      submitted = true;
+      clearExamTimer();
       const cards = [...itemsEl.children];
       const responses = cards.map(c => {
-        const base = { itemId: Number(c.dataset.itemId), type: c.dataset.type };
+        const base = { itemId: Number(c.dataset.itemId), type: c.dataset.type, confidence: Number(c.dataset.confidence) };
         if (c.dataset.type === 'quiz') base.selectedIndex = c.dataset.selectedIndex !== undefined ? Number(c.dataset.selectedIndex) : -1;
         else base.text = c.dataset.text || '';
         return base;
@@ -116,6 +180,12 @@
       const result = await submitFn(responses);
       renderResults(data, result);
     };
+    document.getElementById('submitExam').onclick = doSubmit;
+
+    startExamTimer(data.timeLimitSeconds || 300, () => {
+      showToast('⏱ Time’s up — submitting what you’ve got.', 'warn');
+      doSubmit();
+    });
   }
 
   async function startExam(topicKey) {
@@ -142,9 +212,11 @@
 
     const itemHtml = result.results.map(r => {
       if (r.type === 'quiz') {
+        const overconfident = !r.correct && r.confidence >= 4;
         return `<div class="result-item ${r.correct ? 'right' : 'wrong'}">
           <strong>${r.correct ? 'Correct' : 'Missed'}:</strong> ${r.question}<br>
           ${r.correct ? '' : `<span style="color:var(--good)">Correct answer: ${r.options[r.correctIndex]}</span>`}
+          ${overconfident ? `<div class="tag" style="margin-top:6px;">rated yourself confident, but missed this one</div>` : ''}
         </div>`;
       }
       if (r.type === 'task') {

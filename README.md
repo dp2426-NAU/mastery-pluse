@@ -50,6 +50,20 @@ Everything below fires over the same Socket.IO connection used for the heatmap �
 
 If you're demoing this for a grader: open the instructor dashboard and a student login side by side, start an exam as the student, and narrate the progress chip moving before you even submit.
 
+### Opening multiple logins side by side
+
+Sessions are kept in `sessionStorage`, not `localStorage`, specifically so this works: open a **new tab** (Ctrl/Cmd+T, not "duplicate tab") for each identity you want live at once — one instructor plus several students is the standard demo setup. Each tab keeps its own independent login; logging into `student2` in one tab won't kick out `student1` in another.
+
+## Extra features
+
+- **Live exam timer**: every exam has a countdown (90s/item, 4-minute floor) that auto-submits whatever's answered when it hits zero — turns a form into something with real stakes.
+- **Confidence self-rating**: each question asks "how sure are you?" (1-5). A wrong quiz answer paired with high confidence is flagged in the student's results and is a stronger signal for the instructor than a plain miss — a genuine misconception, not a guess.
+- **"N students online" ticker**: shown to both roles — an anonymized live headcount on the student side, a full presence view (with per-question progress) on the instructor side.
+- **Class-wide misconception leaderboard**: the instructor dashboard's top-line signal — ranked misconceptions across every topic, not just one column, so "what do I re-teach this week" is a single glance.
+- **Remediation impact tracker**: every "Remediate" click records the class average for that topic at that moment; the dashboard then tracks the average since, live, closing the loop on whether the remediation worked.
+- **CSV export**: one click turns the current heatmap into a downloadable `.csv` — a gradebook artifact for your report.
+- **Sound + flash alert**: an optional audible ding (synthesized, no audio file) plus a full-width flash on every live submission — makes a demo readable from the back of a room without narrating where to look.
+
 ## The four signature features
 
 1. **Weak-topic heatmap** — students × topics, color-coded by score, live. Click a cell to drill into exactly which items were missed.

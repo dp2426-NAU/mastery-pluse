@@ -38,18 +38,20 @@ function gradeAndStore(userId, topicId, responses) {
   const results = [];
   const getItem = db.prepare('SELECT * FROM items WHERE id = ?');
   const insert = db.prepare(`
-    INSERT INTO submissions (user_id, topic_id, item_id, type, selected_index, response_text, auto_score, misconception_tag, status, exam_run)
-    VALUES (@user_id, @topic_id, @item_id, @type, @selected_index, @response_text, @auto_score, @misconception_tag, @status, @exam_run)
+    INSERT INTO submissions (user_id, topic_id, item_id, type, selected_index, response_text, auto_score, misconception_tag, confidence, status, exam_run)
+    VALUES (@user_id, @topic_id, @item_id, @type, @selected_index, @response_text, @auto_score, @misconception_tag, @confidence, @status, @exam_run)
   `);
 
   for (const r of responses) {
     const item = getItem.get(r.itemId);
     if (!item || item.topic_id !== topicId) continue;
 
+    const confidence = Number.isFinite(Number(r.confidence)) ? Math.max(1, Math.min(5, Number(r.confidence))) : null;
+
     let row = {
       user_id: userId, topic_id: topicId, item_id: item.id, type: item.type,
       selected_index: null, response_text: null, auto_score: null,
-      misconception_tag: null, status: 'graded', exam_run: examRun,
+      misconception_tag: null, confidence, status: 'graded', exam_run: examRun,
     };
 
     if (item.type === 'quiz') {
@@ -60,7 +62,7 @@ function gradeAndStore(userId, topicId, responses) {
       row.selected_index = selected;
       row.auto_score = correct ? 100 : 0;
       row.misconception_tag = correct ? null : (misconceptions[selected] || null);
-      results.push({ itemId: item.id, type: 'quiz', correct, correctIndex: item.correct_index, options, question: item.prompt });
+      results.push({ itemId: item.id, type: 'quiz', correct, correctIndex: item.correct_index, options, question: item.prompt, confidence });
     } else if (item.type === 'task') {
       const keywords = parseJSON(item.keywords, []);
       const text = (r.text || '').toLowerCase();
@@ -103,6 +105,11 @@ app.get('/api/student/topics', requireRole('student'), (req, res) => {
   })));
 });
 
+// 90s/item, floor of 4 minutes so a short remediation set isn't a 45-second sprint.
+function timeLimitFor(itemCount) {
+  return Math.max(240, itemCount * 90);
+}
+
 app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
@@ -110,6 +117,7 @@ app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
   res.json({
     topic: topic.key,
     topicName: topic.name,
+    timeLimitSeconds: timeLimitFor(items.length),
     items: items.map(it => ({
       id: it.id, type: it.type, prompt: it.prompt,
       options: it.type === 'quiz' ? parseJSON(it.options, []) : undefined,
@@ -156,6 +164,7 @@ app.get('/api/student/remediation/:id', requireRole('student'), (req, res) => {
   const items = ids.map(id => db.prepare('SELECT * FROM items WHERE id = ?').get(id)).filter(Boolean);
   res.json({
     topic: topic.key, topicName: topic.name, message: rem.message,
+    timeLimitSeconds: timeLimitFor(items.length),
     items: items.map(it => ({ id: it.id, type: it.type, prompt: it.prompt, options: it.type === 'quiz' ? parseJSON(it.options, []) : undefined })),
   });
 });
@@ -205,6 +214,40 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
       scores: Object.fromEntries(topics.map(t => [t.key, cells[s.id][t.id] ?? null])),
     })),
   });
+});
+
+// Top misconceptions across the whole class, across ALL topics (not just one
+// column's top tag) — the "what should I re-teach this week" view.
+app.get('/api/instructor/misconceptions', requireRole('instructor'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT s.misconception_tag AS tag, t.key AS topicKey, t.name AS topicName, COUNT(*) AS n
+    FROM submissions s JOIN topics t ON t.id = s.topic_id
+    WHERE s.misconception_tag IS NOT NULL
+    GROUP BY s.misconception_tag, s.topic_id
+    ORDER BY n DESC LIMIT 8
+  `).all();
+  res.json(rows);
+});
+
+app.get('/api/instructor/remediation-impact', requireRole('instructor'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT r.id, r.topic_id, r.before_avg, r.created_at, t.key AS topicKey, t.name AS topicName
+    FROM remediations r JOIN topics t ON t.id = r.topic_id
+    ORDER BY r.created_at DESC LIMIT 10
+  `).all();
+  const out = rows.map(r => {
+    const after = db.prepare(`
+      SELECT AVG(auto_score) AS avg, COUNT(*) AS n FROM submissions
+      WHERE topic_id = ? AND status = 'graded' AND ts > ?
+    `).get(r.topic_id, r.created_at);
+    return {
+      id: r.id, topicKey: r.topicKey, topicName: r.topicName, createdAt: r.created_at,
+      beforeAvg: r.before_avg == null ? null : Math.round(r.before_avg),
+      afterAvg: after.avg == null ? null : Math.round(after.avg),
+      sinceCount: after.n,
+    };
+  });
+  res.json(out);
 });
 
 app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
@@ -279,8 +322,9 @@ app.post('/api/instructor/remediate', requireRole('instructor'), (req, res) => {
   }
 
   const message = `Extra practice recommended in ${topic.name} based on class results.`;
-  const info = db.prepare('INSERT INTO remediations (topic_id, item_ids, message) VALUES (?, ?, ?)')
-    .run(topic.id, JSON.stringify(missed), message);
+  const beforeAvg = classAverageFor(topic.id);
+  const info = db.prepare('INSERT INTO remediations (topic_id, item_ids, message, before_avg) VALUES (?, ?, ?, ?)')
+    .run(topic.id, JSON.stringify(missed), message, beforeAvg);
 
   io.to('students').emit('remediation:new', { topicKey: topic.key, topicName: topic.name, message });
 
@@ -294,7 +338,9 @@ const onlineStudents = new Map();
 const activeExams = new Map();
 
 function broadcastOnline() {
-  io.to('instructors').emit('presence:online', { count: onlineStudents.size });
+  // Both rooms care: instructors see it as a headcount, students see it as
+  // an anonymized "N classmates online now" — same number, same event.
+  io.emit('presence:online', { count: onlineStudents.size });
 }
 
 io.use((socket, next) => {

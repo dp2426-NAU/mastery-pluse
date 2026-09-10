@@ -29,6 +29,39 @@
   // flash exactly the cell(s) that actually changed, instead of silently
   // swapping the whole table.
   let lastScores = {};
+  let lastHeatmapData = null; // kept around for the CSV export button
+
+  // ---- sound + full-width flash: makes a live event unmissable from the
+  // back of a room, without anyone needing to know where to look. ----
+  let audioCtx = null;
+  let soundOn = false;
+  const soundToggle = document.getElementById('soundToggle');
+  soundToggle.onclick = () => {
+    soundOn = !soundOn;
+    if (soundOn && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (soundOn && audioCtx.state === 'suspended') audioCtx.resume();
+    soundToggle.textContent = soundOn ? '🔊 Sound on' : '🔈 Enable sound';
+    soundToggle.classList.toggle('on', soundOn);
+  };
+  function playBeep(freq, duration) {
+    if (!soundOn || !audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, audioCtx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration + 0.02);
+  }
+  function flashEventBar(color) {
+    const bar = document.getElementById('eventBar');
+    bar.style.background = color;
+    bar.classList.remove('flash');
+    void bar.offsetWidth; // restart the animation
+    bar.classList.add('flash');
+  }
 
   function timeLabel(ts) {
     const d = new Date(ts || Date.now());
@@ -47,6 +80,7 @@
 
   async function loadHeatmap(flashKey) {
     const data = await (await fetch('/api/instructor/heatmap', { headers: H })).json();
+    lastHeatmapData = data;
     if (data.students.length === 0) {
       heatmapArea.innerHTML = '<p class="empty">No students yet.</p>';
       return;
@@ -86,6 +120,7 @@
         await fetch('/api/instructor/remediate', { method: 'POST', headers: H, body: JSON.stringify({ topicKey: btn.dataset.topic }) });
         btn.textContent = 'Sent ✓';
         showToast(`Remediation broadcast for ${btn.dataset.name} — students will see it now.`, 'good');
+        loadRemediationImpact();
         setTimeout(() => { btn.textContent = 'Remediate'; }, 2000);
       };
     });
@@ -145,6 +180,60 @@
     });
   }
 
+  document.getElementById('exportCsvBtn').onclick = () => {
+    if (!lastHeatmapData || !lastHeatmapData.students.length) { showToast('Nothing to export yet.', 'warn'); return; }
+    const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const rows = [['Student', ...lastHeatmapData.topics.map(t => t.name)]];
+    lastHeatmapData.students.forEach(s => {
+      rows.push([s.name, ...lastHeatmapData.topics.map(t => (s.scores[t.key] == null ? '' : s.scores[t.key]))]);
+    });
+    const csv = rows.map(r => r.map(esc).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mastery-pulse-heatmap-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('Heatmap exported as CSV.', 'good');
+  };
+
+  async function loadMisconceptions() {
+    const rows = await (await fetch('/api/instructor/misconceptions', { headers: H })).json();
+    const board = document.getElementById('misconceptionBoard');
+    if (!rows.length) { board.innerHTML = '<p class="empty">No misconceptions recorded yet.</p>'; return; }
+    board.innerHTML = rows.map((r, i) => `
+      <div class="leaderboard-item">
+        <span class="rank">#${i + 1}</span>
+        <span class="tag-name">${r.tag.replace(/-/g, ' ')}</span>
+        <span class="topic-name">${r.topicName}</span>
+        <span class="count">${r.n} student${r.n === 1 ? '' : 's'}</span>
+      </div>
+    `).join('');
+  }
+
+  async function loadRemediationImpact() {
+    const rows = await (await fetch('/api/instructor/remediation-impact', { headers: H })).json();
+    const el = document.getElementById('remediationImpact');
+    if (!rows.length) { el.innerHTML = '<p class="empty">No remediations sent yet.</p>'; return; }
+    el.innerHTML = rows.map(r => {
+      const known = r.beforeAvg != null && r.afterAvg != null;
+      const delta = known ? r.afterAvg - r.beforeAvg : null;
+      const deltaLabel = !known ? 'awaiting new submissions' : `${delta > 0 ? '+' : ''}${delta} pts since`;
+      const deltaClass = !known ? '' : delta > 0 ? 'good' : delta < 0 ? 'bad' : '';
+      const when = new Date(r.createdAt + 'Z').toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `<div class="impact-item">
+        <div><strong>${r.topicName}</strong> <span class="time">sent ${when}</span></div>
+        <div class="impact-numbers">
+          <span>${r.beforeAvg == null ? '—' : r.beforeAvg + '%'} → ${r.afterAvg == null ? '—' : r.afterAvg + '%'}</span>
+          <span class="delta ${deltaClass}">${deltaLabel}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
   // ---- live presence: students currently mid-exam, before they've submitted ----
   const activeByStudent = new Map(); // studentId -> {studentName, topicName, answered, total}
 
@@ -176,14 +265,21 @@
   socket.on('exam:submitted', (payload) => {
     showToast(`${payload.studentName} submitted ${payload.topicName} — ${payload.score}%${payload.pendingQA ? ` (${payload.pendingQA} pending review)` : ''}`, 'good');
     pushFeedItem(`<span>🟢 <strong>${payload.studentName}</strong> submitted <strong>${payload.topicName}</strong> — scored ${payload.score}%</span><span class="time">${timeLabel(payload.ts)}</span>`);
+    playBeep(880, 0.12);
+    flashEventBar('var(--good)');
     loadHeatmap(payload.studentId + ':' + payload.topicKey);
+    loadMisconceptions();
+    loadRemediationImpact();
     if (payload.pendingQA) loadQAQueue();
   });
 
   socket.on('qa:reviewed', (payload) => {
     showToast(`Graded ${payload.studentName}'s ${payload.topicName} Q&A — ${payload.score}%`, 'warn');
     pushFeedItem(`<span>📝 Graded <strong>${payload.studentName}</strong>'s ${payload.topicName} short answer — ${payload.score}%</span><span class="time">${timeLabel()}</span>`);
+    playBeep(660, 0.15);
+    flashEventBar('var(--warn)');
     loadHeatmap(payload.userId + ':' + payload.topicKey);
+    loadRemediationImpact();
     loadQAQueue();
   });
 
@@ -196,5 +292,7 @@
 
   loadHeatmap();
   loadQAQueue();
+  loadMisconceptions();
+  loadRemediationImpact();
   loadPresenceSnapshot();
 })();
