@@ -13,6 +13,19 @@
   const view = document.getElementById('view');
   const bannerArea = document.getElementById('bannerArea');
 
+  // ---- live channel: the instructor dashboard watches this student's
+  // progress in real time, and this tab hears remediation broadcasts live. ----
+  const socket = io({ auth: { token } });
+  attachLiveBadge(socket);
+
+  socket.on('remediation:new', (r) => {
+    showToast(`📌 Your instructor added practice for ${r.topicName} — check your dashboard.`, 'good');
+    // Only re-render immediately if we're sitting on the topics screen;
+    // otherwise it'll pick up next time loadBanner runs.
+    if (!view.querySelector('#grid')) return;
+    loadBanner();
+  });
+
   async function loadBanner() {
     const rows = await (await fetch('/api/student/remediation', { headers: H })).json();
     if (!rows.length) { bannerArea.innerHTML = ''; return; }
@@ -40,7 +53,7 @@
     });
   }
 
-  function renderItemInput(item, container) {
+  function renderItemInput(item, container, onChange) {
     const card = document.createElement('div');
     card.className = 'item-card';
     const kindLabel = item.type === 'quiz' ? 'Quiz question' : item.type === 'task' ? 'Task' : 'Short answer';
@@ -55,6 +68,7 @@
           [...optsWrap.children].forEach(c => c.classList.remove('selected'));
           b.classList.add('selected');
           card.dataset.selectedIndex = i;
+          onChange();
         };
         optsWrap.appendChild(b);
       });
@@ -62,7 +76,7 @@
     } else {
       const ta = document.createElement('textarea');
       ta.placeholder = item.type === 'task' ? 'Describe your approach…' : 'Write your answer…';
-      ta.oninput = () => { card.dataset.text = ta.value; };
+      ta.oninput = () => { card.dataset.text = ta.value; onChange(); };
       card.appendChild(ta);
     }
     card.dataset.itemId = item.id;
@@ -70,11 +84,27 @@
     container.appendChild(card);
   }
 
-  function buildExamView(data, submitFn) {
+  function buildExamView(data, submitFn, topicKey) {
     bannerArea.style.display = 'none';
     view.innerHTML = `<h2 style="font-family:var(--serif); margin-bottom:16px;">${data.topicName}</h2><div id="items"></div><div class="submit-row"><button id="submitExam">Submit</button></div>`;
     const itemsEl = document.getElementById('items');
-    data.items.forEach(it => renderItemInput(it, itemsEl));
+
+    // Tell the instructor dashboard this student is starting — it lights up
+    // a live progress chip immediately, before a single question is answered.
+    socket.emit('exam:start', { topicKey, topicName: data.topicName, total: data.items.length });
+
+    let answeredCount = -1;
+    const reportProgress = () => {
+      const answered = [...itemsEl.children].filter(c => {
+        if (c.dataset.type === 'quiz') return c.dataset.selectedIndex !== undefined;
+        return (c.dataset.text || '').trim().length > 0;
+      }).length;
+      if (answered === answeredCount) return;
+      answeredCount = answered;
+      socket.emit('exam:progress', { answered });
+    };
+
+    data.items.forEach(it => renderItemInput(it, itemsEl, reportProgress));
     document.getElementById('submitExam').onclick = async () => {
       const cards = [...itemsEl.children];
       const responses = cards.map(c => {
@@ -93,7 +123,7 @@
     buildExamView(data, async (responses) => {
       const res = await fetch(`/api/student/exam/${topicKey}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses }) });
       return res.json();
-    });
+    }, topicKey);
   }
 
   async function startRemediation(remId) {
@@ -101,7 +131,7 @@
     buildExamView(data, async (responses) => {
       const res = await fetch(`/api/student/exam/${data.topic}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses }) });
       return res.json();
-    });
+    }, data.topic);
   }
 
   function renderResults(data, result) {
@@ -136,6 +166,7 @@
       <div style="text-align:center;"><span class="back-link" id="backLink">← Back to topics</span></div>
     `;
     document.getElementById('backLink').onclick = () => { showTopics(); loadBanner(); };
+    showToast(`Submitted — instructor's heatmap just updated live.`, 'good');
   }
 
   showTopics();

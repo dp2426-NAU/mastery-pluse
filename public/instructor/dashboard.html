@@ -27,6 +27,25 @@
   .misconception-row{ font-size:.72rem; color:var(--text-muted); margin-top:-4px; margin-bottom:24px; }
   .remediate-btn{ width:auto; padding:5px 10px; font-size:.72rem; margin-left:8px; background:var(--surface-2); color:var(--text); border:1px solid var(--line); }
 
+  .presence-row{ font-family:var(--mono); font-size:.76rem; color:var(--text-muted); margin-bottom:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .presence-row .online-count{ color:var(--good); }
+  .presence-chip{
+    display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--line);
+    border-radius:999px; padding:4px 10px 4px 8px; font-family:var(--sans); font-size:.78rem; color:var(--text);
+  }
+  .presence-chip .dot{ width:7px; height:7px; border-radius:50%; background:var(--warn); animation:pulse 1.3s infinite; }
+  .presence-chip .bar{ width:52px; height:5px; border-radius:3px; background:var(--line); overflow:hidden; }
+  .presence-chip .bar > span{ display:block; height:100%; background:var(--warn); transition:width .3s ease; }
+
+  .feed{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; max-height:220px; overflow-y:auto; }
+  .feed-item{
+    padding:10px 0; border-bottom:1px solid var(--line); font-size:.83rem; display:flex; justify-content:space-between; gap:10px;
+    opacity:0; transform:translateY(-6px); animation:feed-in .35s ease forwards;
+  }
+  @keyframes feed-in{ to{ opacity:1; transform:translateY(0); } }
+  .feed-item:last-child{ border-bottom:none; }
+  .feed-item .time{ font-family:var(--mono); font-size:.7rem; color:var(--text-muted); white-space:nowrap; }
+
   .qa-queue{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; }
   .qa-item{ padding:14px 0; border-bottom:1px solid var(--line); }
   .qa-item:last-child{ border-bottom:none; }
@@ -57,6 +76,15 @@
     <span><span class="who" id="whoami"></span><button class="logout" id="logoutBtn">Sign out</button></span>
   </div>
   <div class="wrap">
+    <div class="presence-row">
+      <span><span class="online-count" id="onlineCount">0</span> student(s) online</span>
+      <span id="activeChips"></span>
+    </div>
+
+    <p class="section-title"><span class="live-dot"></span>Live Activity</p>
+    <p class="section-sub">Streams in the instant a student submits or a Q&amp;A gets graded — nothing here needs a refresh.</p>
+    <div class="feed" id="activityFeed"><p class="empty">Waiting for activity…</p></div>
+
     <p class="section-title"><span class="live-dot"></span>Weak-Topic Heatmap</p>
     <p class="section-sub">Each cell is a student's score for that topic (quiz + task, auto-graded). Click a cell for the full breakdown. Updates live as exams are submitted.</p>
     <div id="heatmapArea"></div>
@@ -71,6 +99,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/live.js"></script>
   <script src="/instructor/dashboard.js"></script>
 </body>
 </html>

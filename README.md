@@ -37,6 +37,19 @@ npm start          # starts the server on http://localhost:3000
 
 Open the instructor dashboard in one tab and a student login in another (or incognito) to watch the heatmap update live as exams are submitted.
 
+## Proving it's a live app, not a form
+
+Everything below fires over the same Socket.IO connection used for the heatmap — there's no polling, no refresh button.
+
+- **Live-while-typing progress**: the instant a student opens an exam, the instructor dashboard shows a presence chip — `Aiden Cross — Networking (3/8)` — that advances with every question answered, *before* the student submits.
+- **Flash + toast on every change**: a submission doesn't just silently update a number. The exact heatmap cell that changed glows, and a toast slides in ("Aiden Cross submitted Networking — 62%"), so a live update is impossible to miss mid-demo.
+- **Live activity feed**: a scrolling ticker on the instructor dashboard logs every submission and every Q&A grade the moment it happens, each with a timestamp.
+- **Connection badge**: both panels show a `● Live` / `● Reconnecting…` badge in the top bar, so you can point at proof the socket is actually connected.
+- **"N students online"**: the instructor dashboard shows a live count of connected students, ticking up/down as they log in and out.
+- **Live remediation**: when an instructor clicks Remediate, the banner appears on an already-open student dashboard immediately (with a toast), not on next page load.
+
+If you're demoing this for a grader: open the instructor dashboard and a student login side by side, start an exam as the student, and narrate the progress chip moving before you even submit.
+
 ## The four signature features
 
 1. **Weak-topic heatmap** — students × topics, color-coded by score, live. Click a cell to drill into exactly which items were missed.

@@ -127,6 +127,9 @@ app.post('/api/student/exam/:topicKey/submit', requireRole('student'), (req, res
   const classAverage = classAverageFor(topic.id);
   const pendingQA = results.filter(r => r.type === 'qa').length;
 
+  activeExams.delete(req.user.sub);
+  io.to('instructors').emit('presence:clear', { studentId: req.user.sub });
+
   io.to('instructors').emit('exam:submitted', {
     studentId: req.user.sub, studentName: req.user.name,
     topicKey: topic.key, topicName: topic.name,
@@ -204,6 +207,13 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
   });
 });
 
+app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
+  res.json({
+    online: onlineStudents.size,
+    active: [...activeExams.values()],
+  });
+});
+
 app.get('/api/instructor/detail/:studentId/:topicKey', requireRole('instructor'), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
@@ -242,8 +252,15 @@ app.post('/api/instructor/review', requireRole('instructor'), (req, res) => {
   const { submissionId, score } = req.body || {};
   const clamped = Math.max(0, Math.min(100, Number(score)));
   db.prepare("UPDATE submissions SET auto_score = ?, status = 'graded' WHERE id = ?").run(clamped, submissionId);
-  const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(submissionId);
-  io.to('instructors').emit('qa:reviewed', { submissionId, userId: sub.user_id, topicId: sub.topic_id });
+  const sub = db.prepare(`
+    SELECT s.*, u.display_name AS studentName, t.name AS topicName, t.key AS topicKey
+    FROM submissions s JOIN users u ON u.id = s.user_id JOIN topics t ON t.id = s.topic_id
+    WHERE s.id = ?
+  `).get(submissionId);
+  io.to('instructors').emit('qa:reviewed', {
+    submissionId, userId: sub.user_id, topicId: sub.topic_id, topicKey: sub.topicKey,
+    studentName: sub.studentName, topicName: sub.topicName, score: clamped,
+  });
   res.json({ ok: true });
 });
 
@@ -271,6 +288,15 @@ app.post('/api/instructor/remediate', requireRole('instructor'), (req, res) => {
 });
 
 // ---------- Socket.IO ----------
+// userId -> Set of live socket ids (a student can have >1 tab open)
+const onlineStudents = new Map();
+// userId -> { studentId, studentName, topicKey, topicName, answered, total } while an exam is in progress
+const activeExams = new Map();
+
+function broadcastOnline() {
+  io.to('instructors').emit('presence:online', { count: onlineStudents.size });
+}
+
 io.use((socket, next) => {
   const claims = socket.handshake.auth?.token && verifyToken(socket.handshake.auth.token);
   if (!claims) return next(new Error('Unauthorized socket connection.'));
@@ -279,7 +305,44 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  socket.join(socket.user.role === 'instructor' ? 'instructors' : 'students');
+  const { role, sub: userId, name } = socket.user;
+  socket.join(role === 'instructor' ? 'instructors' : 'students');
+
+  if (role === 'instructor') {
+    // Let a freshly-opened dashboard know who's online right away.
+    socket.emit('presence:online', { count: onlineStudents.size });
+    return;
+  }
+
+  // ---- student presence: who's connected, and what they're mid-way through ----
+  if (!onlineStudents.has(userId)) onlineStudents.set(userId, new Set());
+  onlineStudents.get(userId).add(socket.id);
+  broadcastOnline();
+
+  socket.on('exam:start', ({ topicKey, topicName, total }) => {
+    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0 };
+    activeExams.set(userId, state);
+    io.to('instructors').emit('presence:progress', state);
+  });
+
+  socket.on('exam:progress', ({ answered }) => {
+    const state = activeExams.get(userId);
+    if (!state) return;
+    state.answered = answered;
+    io.to('instructors').emit('presence:progress', state);
+  });
+
+  socket.on('disconnect', () => {
+    const set = onlineStudents.get(userId);
+    if (!set) return;
+    set.delete(socket.id);
+    if (set.size === 0) {
+      onlineStudents.delete(userId);
+      activeExams.delete(userId);
+      io.to('instructors').emit('presence:clear', { studentId: userId });
+    }
+    broadcastOnline();
+  });
 });
 
 const PORT = process.env.PORT || 3000;
