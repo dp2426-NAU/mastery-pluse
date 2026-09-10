@@ -31,9 +31,9 @@ npm start          # starts the server on http://localhost:3000
 | Role | Username | Password |
 |---|---|---|
 | Instructor | `prof.demo` | `MasterClass#2026` |
-| Student | `student1` | `Pulse#Student1` |
-| Student | `student2` | `Pulse#Student2` |
-| Student | `student3` | `Pulse#Student3` |
+| Student | `student1` … `student10` | `Pulse#Student1` … `Pulse#Student10` |
+
+(Same pattern for all ten: `studentN` / `Pulse#StudentN`.)
 
 Open the instructor dashboard in one tab and a student login in another (or incognito) to watch the heatmap update live as exams are submitted.
 

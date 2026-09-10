@@ -16,6 +16,13 @@ const DEMO_USERS = [
   { username: 'student1', password: 'Pulse#Student1', role: 'student', display_name: 'Aiden Cross' },
   { username: 'student2', password: 'Pulse#Student2', role: 'student', display_name: 'Maria Okafor' },
   { username: 'student3', password: 'Pulse#Student3', role: 'student', display_name: 'Ravi Shah' },
+  { username: 'student4', password: 'Pulse#Student4', role: 'student', display_name: 'Wei Zhang' },
+  { username: 'student5', password: 'Pulse#Student5', role: 'student', display_name: 'Fatima Ali' },
+  { username: 'student6', password: 'Pulse#Student6', role: 'student', display_name: 'Lucas Bianchi' },
+  { username: 'student7', password: 'Pulse#Student7', role: 'student', display_name: 'Sofia Petrova' },
+  { username: 'student8', password: 'Pulse#Student8', role: 'student', display_name: 'Daniel Kim' },
+  { username: 'student9', password: 'Pulse#Student9', role: 'student', display_name: 'Emma Johansson' },
+  { username: 'student10', password: 'Pulse#Student10', role: 'student', display_name: 'Noah Fernandez' },
 ];
 
 function seed() {
