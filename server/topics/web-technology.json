@@ -1,0 +1,17 @@
+{
+  "quiz": [
+    { "tier": 1, "question": "Which HTTP method is generally used to retrieve a resource without side effects?", "options": ["GET", "DELETE", "PUT", "PATCH"], "correctIndex": 0, "misconceptions": [null, "confuses-get-with-delete", "confuses-get-with-put", "confuses-get-with-patch"] },
+    { "tier": 2, "question": "What does REST stand for in the context of web APIs?", "options": ["Representational State Transfer", "Remote Execution Service Type", "Reliable Endpoint State Transaction", "Resource Encoding and Stream Transfer"], "correctIndex": 0, "misconceptions": [null, "invented-acronym-expansion", "invented-acronym-expansion", "invented-acronym-expansion"] },
+    { "tier": 2, "question": "Which of these best describes a WebSocket connection compared to standard HTTP requests?", "options": ["It's a one-time request-response exchange", "It's a persistent, full-duplex connection allowing real-time two-way messages", "It only works for downloading files", "It replaces the need for a web server"], "correctIndex": 1, "misconceptions": ["confuses-websocket-with-http-request", null, "overly-narrow-view-of-websocket", "overestimates-websocket-role"] },
+    { "tier": 2, "question": "What is the same-origin policy designed to prevent?", "options": ["Slow page load times", "A script from one origin freely reading data from a different origin", "CSS from applying to multiple elements", "Cookies from expiring"], "correctIndex": 1, "misconceptions": ["unrelated-to-performance", null, "confuses-with-css-scoping", "confuses-with-cookie-expiry"] },
+    { "tier": 3, "question": "What does idempotent mean when describing an HTTP method like PUT or DELETE?", "options": ["It can only be called once ever", "Calling it multiple times has the same effect as calling it once", "It always returns a 200 status", "It cannot be cached"], "correctIndex": 1, "misconceptions": ["confuses-idempotent-with-single-use", null, "confuses-idempotent-with-status-code", "confuses-idempotent-with-caching"] }
+  ],
+  "task": [
+    { "prompt": "A REST API endpoint POST /orders is being called twice due to a flaky network retry, creating duplicate orders. Explain how you'd redesign the endpoint or request so retries are safe.", "keywords": ["idempotent", "idempotency key", "unique", "duplicate", "put"] },
+    { "prompt": "Write out the sequence of steps, in order, that happen between a browser and a server while a WebSocket connection is being established from an initial HTTP request.", "keywords": ["http request", "upgrade header", "101", "handshake", "persistent connection"] }
+  ],
+  "qa": [
+    { "prompt": "Explain the trade-off between server-side rendering and client-side rendering for a content-heavy website." },
+    { "prompt": "Describe what could go wrong for users if a website's Content Security Policy was configured too permissively." }
+  ]
+}

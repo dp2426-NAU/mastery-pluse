@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: mastery-pulse
+    env: node
+    plan: free
+    buildCommand: npm install && npm run seed
+    startCommand: npm start
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true

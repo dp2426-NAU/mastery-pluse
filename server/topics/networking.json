@@ -1,0 +1,17 @@
+{
+  "quiz": [
+    { "tier": 1, "question": "How many layers does the OSI model have?", "options": ["4", "5", "7", "9"], "correctIndex": 2, "misconceptions": ["confuses-with-tcpip-model", "confuses-with-tcpip-5layer-variant", null, "overcounts-osi-layers"] },
+    { "tier": 2, "question": "What is the purpose of the TCP three-way handshake?", "options": ["To compress data before sending", "To establish a reliable connection between client and server before data transfer", "To encrypt the session key", "To resolve a domain name to an IP address"], "correctIndex": 1, "misconceptions": ["confuses-with-compression", null, "confuses-with-tls-handshake", "confuses-with-dns"] },
+    { "tier": 2, "question": "What is the key difference between TCP and UDP?", "options": ["UDP guarantees delivery order; TCP does not", "TCP is connection-oriented and reliable; UDP is connectionless and best-effort", "TCP is only used for email; UDP for web pages", "There is no functional difference"], "correctIndex": 1, "misconceptions": ["inverts-tcp-udp-properties", null, "invented-protocol-restriction", "denies-real-difference"] },
+    { "tier": 2, "question": "What is the purpose of a subnet mask?", "options": ["To hide a device's MAC address", "To divide an IP address into network and host portions", "To encrypt DNS queries", "To prioritize video traffic over other traffic"], "correctIndex": 1, "misconceptions": ["confuses-with-mac-privacy", null, "confuses-with-dns-encryption", "confuses-with-qos"] },
+    { "tier": 3, "question": "What is the main advantage of IPv6 over IPv4 in terms of addressing?", "options": ["IPv6 uses shorter addresses that are easier to remember", "IPv6 provides a vastly larger address space (128-bit vs 32-bit)", "IPv6 does not require routers", "IPv6 eliminates the need for DNS"], "correctIndex": 1, "misconceptions": ["incorrectly-claims-shorter-addresses", null, "incorrectly-claims-no-routers-needed", "incorrectly-claims-no-dns-needed"] }
+  ],
+  "task": [
+    { "prompt": "A user can reach websites by typing an IP address directly but not by domain name. Walk through the steps you'd take to diagnose the problem, and name the most likely cause.", "keywords": ["dns", "nslookup", "resolver", "dns server", "cache"] },
+    { "prompt": "Explain how you would design the subnetting for a small office with three departments that need to be isolated from each other on the same physical network.", "keywords": ["vlan", "subnet", "subnet mask", "broadcast domain", "router"] }
+  ],
+  "qa": [
+    { "prompt": "Explain, in your own words, why UDP is still used for anything given that it doesn't guarantee delivery." },
+    { "prompt": "Describe a scenario where NAT could cause a problem for an application, and why." }
+  ]
+}

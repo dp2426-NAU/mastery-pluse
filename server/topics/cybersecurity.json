@@ -1,0 +1,17 @@
+{
+  "quiz": [
+    { "tier": 1, "question": "Which three properties make up the CIA triad in information security?", "options": ["Confidentiality, Integrity, Availability", "Control, Identity, Access", "Cryptography, Isolation, Authentication", "Certification, Inspection, Auditing"], "correctIndex": 0, "misconceptions": [null, "confuses-cia-with-access-control", "confuses-cia-with-crypto-terms", "confuses-cia-with-audit-terms"] },
+    { "tier": 1, "question": "Which attack tricks a user into revealing credentials via a fake but convincing email or site?", "options": ["Phishing", "SQL injection", "Buffer overflow", "Man-in-the-middle"], "correctIndex": 0, "misconceptions": [null, "confuses-phishing-with-injection", "confuses-phishing-with-memory-attacks", "confuses-phishing-with-mitm"] },
+    { "tier": 2, "question": "In a SQL injection attack, what is the attacker primarily exploiting?", "options": ["Weak Wi-Fi encryption", "Unsanitized user input concatenated into a query", "An expired TLS certificate", "A misconfigured DNS record"], "correctIndex": 1, "misconceptions": ["confuses-injection-with-network-security", null, "confuses-injection-with-tls", "confuses-injection-with-dns"] },
+    { "tier": 2, "question": "What does the principle of least privilege recommend?", "options": ["Every user should have administrator access by default", "Users and processes should have only the access needed for their task", "Passwords should be as short as possible", "Firewalls should allow all outbound traffic"], "correctIndex": 1, "misconceptions": ["inverts-least-privilege", null, "confuses-with-password-policy", "confuses-with-firewall-policy"] },
+    { "tier": 3, "question": "What distinguishes a zero-day vulnerability from other vulnerabilities?", "options": ["It only affects mobile devices", "It has no known exploit in the wild", "It is unknown to the vendor and has no patch available yet", "It can only be exploited physically"], "correctIndex": 2, "misconceptions": ["overgeneralizes-to-mobile-only", "confuses-unknown-exploit-with-no-exploit", null, "confuses-with-physical-access-only"] }
+  ],
+  "task": [
+    { "prompt": "A user reports receiving an email asking them to 'verify' their account by clicking a link and entering their password. As a security analyst, describe the type of attack this likely is and two steps you'd recommend to mitigate it.", "keywords": ["phishing", "report", "mfa", "sender", "password", "link"] },
+    { "prompt": "Outline at least three concrete steps you'd take to harden a newly provisioned Linux web server before putting it into production.", "keywords": ["firewall", "patch", "ssh key", "disable root", "least privilege", "unused ports"] }
+  ],
+  "qa": [
+    { "prompt": "In your own words, explain why the principle of least privilege reduces the impact of a compromised account." },
+    { "prompt": "Describe a real or hypothetical scenario where multi-factor authentication would have prevented a breach, and explain why." }
+  ]
+}

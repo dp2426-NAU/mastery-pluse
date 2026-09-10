@@ -1,0 +1,17 @@
+{
+  "quiz": [
+    { "tier": 1, "question": "What does IaaS stand for in cloud computing?", "options": ["Internet as a Service", "Infrastructure as a Service", "Interface as a Service", "Integration as a Service"], "correctIndex": 1, "misconceptions": ["invented-acronym-expansion", null, "invented-acronym-expansion", "invented-acronym-expansion"] },
+    { "tier": 1, "question": "Which cloud service model gives you a managed platform to deploy applications without managing the underlying servers?", "options": ["IaaS", "PaaS", "On-premises hosting", "SaaS"], "correctIndex": 1, "misconceptions": ["confuses-paas-with-iaas", null, "confuses-cloud-with-onprem", "confuses-paas-with-saas"] },
+    { "tier": 2, "question": "What is a key difference between a virtual machine and a container?", "options": ["Containers include a full guest OS kernel; VMs do not", "VMs virtualize hardware and run a full OS each; containers share the host OS kernel and are more lightweight", "There is no meaningful difference", "Containers can only run on physical hardware"], "correctIndex": 1, "misconceptions": ["inverts-vm-container-relationship", null, "denies-real-difference", "incorrect-deployment-constraint"] },
+    { "tier": 3, "question": "What is the main idea behind the 'shared responsibility model' in cloud security?", "options": ["The cloud provider is responsible for everything, including application code", "Security responsibilities are split between the provider (e.g., physical infrastructure) and the customer (e.g., data, access configuration)", "The customer is responsible for the physical data center", "There is no division of responsibility in the cloud"], "correctIndex": 1, "misconceptions": ["overassigns-responsibility-to-provider", null, "overassigns-responsibility-to-customer", "denies-shared-responsibility-model"] },
+    { "tier": 3, "question": "What does 'vendor lock-in' refer to in cloud computing?", "options": ["A security feature that locks unauthorized users out", "Difficulty migrating away from a provider due to dependence on its proprietary services", "A pricing discount for long-term customers", "A requirement to use only open-source software"], "correctIndex": 1, "misconceptions": ["confuses-with-access-control", null, "confuses-with-pricing-discount", "confuses-with-licensing-requirement"] }
+  ],
+  "task": [
+    { "prompt": "Your application's traffic spikes 10x every weekday morning and drops to near-zero overnight. Describe how you'd configure the cloud infrastructure to handle this cost-effectively.", "keywords": ["auto-scaling", "load balancer", "metrics", "threshold", "elasticity"] },
+    { "prompt": "Explain the steps you would take to reduce the risk of vendor lock-in when designing a new cloud-hosted application.", "keywords": ["open standards", "containers", "portable", "avoid proprietary", "multi-cloud", "infrastructure as code"] }
+  ],
+  "qa": [
+    { "prompt": "Explain why 'infrastructure as code' is considered a best practice compared to manually configuring servers through a dashboard." },
+    { "prompt": "Describe a situation where choosing PaaS over IaaS would save a small team significant time, and why." }
+  ]
+}

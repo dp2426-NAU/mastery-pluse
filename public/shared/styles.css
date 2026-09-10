@@ -1,0 +1,49 @@
+:root{
+  --bg:#0F1420; --surface:#171E2E; --surface-2:#1F293D; --line:#2A3550;
+  --text:#E7EAF3; --text-muted:#8B96B3;
+  --accent:#5B8CFF; --accent-ink:#08122B;
+  --good:#33C58E; --bad:#E2583F; --warn:#F0B429;
+  --radius:12px;
+  --serif:'Source Serif 4', Georgia, serif;
+  --sans:'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  --mono:'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+}
+*{box-sizing:border-box;}
+body{
+  margin:0; background:var(--bg); color:var(--text); font-family:var(--sans);
+  min-height:100vh;
+}
+.center-screen{
+  min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+}
+.card{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+  padding:32px; width:100%; max-width:380px;
+}
+.card h1{ font-family:var(--serif); font-size:1.5rem; margin:0 0 4px; }
+.card .tag{ font-family:var(--mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); margin:0 0 20px; }
+label{ display:block; font-size:.82rem; color:var(--text-muted); margin:14px 0 6px; }
+input{
+  width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--text);
+  border-radius:8px; padding:10px 12px; font-size:.95rem; font-family:var(--sans);
+}
+input:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+button{
+  margin-top:22px; width:100%; background:var(--accent); color:var(--accent-ink); border:none;
+  border-radius:8px; padding:12px; font-weight:600; font-size:.95rem; cursor:pointer; font-family:var(--sans);
+}
+button:hover{ filter:brightness(1.08); }
+.error{ color:var(--bad); font-size:.85rem; margin-top:12px; min-height:1em; }
+.hint{ font-size:.76rem; color:var(--text-muted); margin-top:18px; font-family:var(--mono); line-height:1.6; }
+a{ color:var(--accent); }
+
+.topbar{
+  display:flex; align-items:center; justify-content:space-between; padding:16px 28px;
+  border-bottom:1px solid var(--line); background:var(--surface);
+}
+.topbar .brand{ font-family:var(--serif); font-weight:700; font-size:1.1rem; }
+.topbar .who{ font-family:var(--mono); font-size:.78rem; color:var(--text-muted); }
+.topbar button.logout{
+  width:auto; margin:0; padding:7px 14px; background:transparent; border:1px solid var(--line);
+  color:var(--text-muted); font-size:.78rem;
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mastery Pulse — Instructor Login</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/shared/styles.css">
+<style> .tag{ color:var(--warn); } </style>
+</head>
+<body>
+  <div class="center-screen">
+    <div class="card">
+      <p class="tag">Instructor panel</p>
+      <h1>Sign in to the dashboard</h1>
+      <form id="loginForm">
+        <label for="username">Username</label>
+        <input id="username" autocomplete="username" required>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Sign in</button>
+        <p class="error" id="err"></p>
+      </form>
+      <p class="hint">Demo account:<br>prof.demo / MasterClass#2026</p>
+    </div>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const err = document.getElementById('err');
+      err.textContent = '';
+      try {
+        const res = await fetch('/api/auth/instructor/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) { err.textContent = data.error || 'Login failed.'; return; }
+        localStorage.setItem('mp_token', data.token);
+        localStorage.setItem('mp_user', JSON.stringify(data.user));
+        window.location.href = '/instructor/dashboard.html';
+      } catch (e2) {
+        err.textContent = 'Could not reach the server.';
+      }
+    });
+  </script>
+</body>
+</html>

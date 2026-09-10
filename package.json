@@ -1,0 +1,19 @@
+{
+  "name": "mastery-pulse",
+  "version": "1.0.0",
+  "description": "Real-time adaptive practice platform with live instructor mastery view",
+  "main": "server/server.js",
+  "scripts": {
+    "seed": "node server/seed.js",
+    "start": "node server/server.js",
+    "dev": "node server/seed.js && node server/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.7.5"
+  }
+}

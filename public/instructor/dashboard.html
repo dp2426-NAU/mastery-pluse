@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mastery Pulse — Instructor Dashboard</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/shared/styles.css">
+<style>
+  .wrap{ max-width:1080px; margin:0 auto; padding:28px 20px 90px; }
+  .section-title{ font-family:var(--serif); font-size:1.2rem; margin:0 0 4px; }
+  .section-sub{ color:var(--text-muted); font-size:.84rem; margin:0 0 16px; }
+  .live-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--good); margin-right:6px; animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  table.heat{ width:100%; border-collapse:collapse; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; margin-bottom:12px; }
+  table.heat th, table.heat td{ padding:10px 12px; border-bottom:1px solid var(--line); font-size:.85rem; text-align:center; }
+  table.heat th{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
+  table.heat td:first-child, table.heat th:first-child{ text-align:left; font-family:var(--sans); font-weight:500; }
+  .cell{ display:inline-block; min-width:44px; padding:5px 8px; border-radius:6px; font-family:var(--mono); font-weight:600; cursor:pointer; }
+  .cell:hover{ outline:2px solid var(--accent); }
+  .cell.none{ background:transparent; color:var(--text-muted); cursor:default; }
+  .cell.low{ background:rgba(226,88,63,.18); color:var(--bad); }
+  .cell.mid{ background:rgba(240,180,41,.18); color:var(--warn); }
+  .cell.high{ background:rgba(51,197,142,.18); color:var(--good); }
+
+  .misconception-row{ font-size:.72rem; color:var(--text-muted); margin-top:-4px; margin-bottom:24px; }
+  .remediate-btn{ width:auto; padding:5px 10px; font-size:.72rem; margin-left:8px; background:var(--surface-2); color:var(--text); border:1px solid var(--line); }
+
+  .qa-queue{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; }
+  .qa-item{ padding:14px 0; border-bottom:1px solid var(--line); }
+  .qa-item:last-child{ border-bottom:none; }
+  .qa-meta{ font-family:var(--mono); font-size:.72rem; color:var(--text-muted); margin-bottom:4px; }
+  .qa-prompt{ font-size:.88rem; margin-bottom:6px; }
+  .qa-response{ font-size:.88rem; color:var(--text); background:var(--surface-2); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+  .qa-grade{ display:flex; gap:8px; align-items:center; }
+  .qa-grade input{ width:80px; }
+  .qa-grade button{ width:auto; margin:0; padding:8px 14px; }
+  .empty{ color:var(--text-muted); padding:16px 0; font-size:.86rem; }
+
+  /* drill-down drawer */
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-end; justify-content:center; z-index:10; }
+  .overlay.open{ display:flex; }
+  .drawer{ background:var(--surface); border:1px solid var(--line); border-radius:16px 16px 0 0; width:100%; max-width:680px; max-height:82vh; overflow-y:auto; padding:24px 26px 32px; }
+  .drawer h3{ font-family:var(--serif); margin:0 0 14px; }
+  .drawer .close{ float:right; cursor:pointer; color:var(--text-muted); background:none; border:none; font-size:1.1rem; width:auto; margin:0; }
+  .detail-item{ background:var(--surface-2); border-radius:8px; padding:12px 14px; margin-bottom:10px; font-size:.85rem; }
+  .detail-item.wrong{ border-left:3px solid var(--bad); }
+  .detail-item.right{ border-left:3px solid var(--good); }
+  .detail-item.pending{ border-left:3px solid var(--warn); }
+  .tag{ display:inline-block; font-family:var(--mono); font-size:.68rem; background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:2px 8px; margin-top:4px; color:var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="brand">Mastery Pulse · Instructor</span>
+    <span><span class="who" id="whoami"></span><button class="logout" id="logoutBtn">Sign out</button></span>
+  </div>
+  <div class="wrap">
+    <p class="section-title"><span class="live-dot"></span>Weak-Topic Heatmap</p>
+    <p class="section-sub">Each cell is a student's score for that topic (quiz + task, auto-graded). Click a cell for the full breakdown. Updates live as exams are submitted.</p>
+    <div id="heatmapArea"></div>
+
+    <p class="section-title" style="margin-top:30px;">Pending Q&amp;A review</p>
+    <p class="section-sub">Free-text answers aren't auto-graded — score them here and the heatmap updates immediately.</p>
+    <div class="qa-queue" id="qaQueue"></div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="drawer" id="drawer"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/instructor/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "quiz": [
+    { "tier": 1, "question": "In the MVC pattern, what does the 'M' stand for?", "options": ["Method", "Model", "Middleware", "Module"], "correctIndex": 1, "misconceptions": ["invented-mvc-term", null, "confuses-model-with-middleware", "invented-mvc-term"] },
+    { "tier": 1, "question": "What does an API primarily allow in a full-stack application?", "options": ["Direct access to the file system of the client", "The frontend and backend (or two systems) to communicate through a defined interface", "Styling of HTML elements", "Compression of images"], "correctIndex": 1, "misconceptions": ["incorrectly-claims-filesystem-access", null, "confuses-api-with-css", "confuses-api-with-compression"] },
+    { "tier": 2, "question": "What is the main purpose of middleware in a framework like Express.js?", "options": ["To style the front end", "To process requests/responses in a pipeline before reaching the final route handler", "To store data permanently", "To compile front-end JavaScript only"], "correctIndex": 1, "misconceptions": ["confuses-middleware-with-css", null, "confuses-middleware-with-database", "confuses-middleware-with-build-tools"] },
+    { "tier": 2, "question": "What is the difference between authentication and authorization?", "options": ["They are the same thing", "Authentication verifies who you are; authorization determines what you're allowed to do", "Authorization happens before authentication always", "Authentication is only used for databases"], "correctIndex": 1, "misconceptions": ["denies-real-difference", null, "inverts-auth-order", "overly-narrow-scope"] },
+    { "tier": 3, "question": "What does 'statelessness' mean in the context of a REST API server?", "options": ["The server never restarts", "Each request contains all the information needed to process it, with no client session stored on the server between requests", "The server cannot connect to a database", "The API has no error handling"], "correctIndex": 1, "misconceptions": ["confuses-with-uptime", null, "confuses-with-database-access", "confuses-with-error-handling"] }
+  ],
+  "task": [
+    { "prompt": "A page that lists 10,000 products is loading slowly because every request hits the database directly. Describe at least two concrete changes you'd make to speed it up.", "keywords": ["caching", "index", "pagination", "redis", "database index"] },
+    { "prompt": "Design the basic request flow, in order, for a user logging into a full-stack web app that uses JWT-based authentication.", "keywords": ["login request", "verify password", "sign jwt", "return token", "authorization header", "verify token"] }
+  ],
+  "qa": [
+    { "prompt": "Explain why storing session state only on the client (e.g., in a JWT) can be both an advantage and a limitation." },
+    { "prompt": "Describe a situation where you would choose a monolithic architecture over microservices for a new project, and why." }
+  ]
+}
