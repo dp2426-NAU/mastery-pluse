@@ -1,6 +1,7 @@
 // Grading is pulled out of server.js so it can be unit-tested directly,
 // without spinning up Express or a socket connection.
 const db = require('./db');
+const { jaccardSimilarity, isComparable, SIMILARITY_THRESHOLD } = require('./similarity');
 
 const parseJSON = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } catch { return fallback; } };
 
@@ -24,9 +25,33 @@ function classAverageFor(topicId) {
   return row.avg == null ? null : Math.round(row.avg);
 }
 
+// Compares a just-submitted free-text answer against every other student's
+// prior answer to the SAME item, flags high-overlap pairs for instructor
+// review, and returns what it flagged (for the live socket notification).
+function checkSimilarity(itemId, submissionId, userId, text) {
+  if (!isComparable(text)) return [];
+  const others = db.prepare(`
+    SELECT s.id, s.response_text, u.display_name AS studentName
+    FROM submissions s JOIN users u ON u.id = s.user_id
+    WHERE s.item_id = ? AND s.user_id != ? AND s.id != ? AND s.response_text IS NOT NULL
+  `).all(itemId, userId, submissionId);
+
+  const insertFlag = db.prepare('INSERT INTO similarity_flags (submission_id, matched_submission_id, similarity) VALUES (?, ?, ?)');
+  const flagged = [];
+  for (const other of others) {
+    const similarity = jaccardSimilarity(text, other.response_text);
+    if (similarity >= SIMILARITY_THRESHOLD) {
+      insertFlag.run(submissionId, other.id, similarity);
+      flagged.push({ itemId, matchedStudentName: other.studentName, similarity: Math.round(similarity * 100) });
+    }
+  }
+  return flagged;
+}
+
 function gradeAndStore(userId, topicId, responses) {
   const examRun = Date.now();
   const results = [];
+  const similarityFlags = [];
   const getItem = db.prepare('SELECT * FROM items WHERE id = ?');
   const insert = db.prepare(`
     INSERT INTO submissions (user_id, topic_id, item_id, type, selected_index, response_text, auto_score, misconception_tag, confidence, status, exam_run)
@@ -68,8 +93,18 @@ function gradeAndStore(userId, topicId, responses) {
       results.push({ itemId: item.id, type: 'qa', status: 'pending_review' });
     }
 
-    insert.run(row);
+    const inserted = insert.run(row);
+
+    // Free-text answers only — a wrong quiz pick has no "text" to compare.
+    if ((item.type === 'task' || item.type === 'qa') && row.response_text) {
+      similarityFlags.push(...checkSimilarity(item.id, inserted.lastInsertRowid, userId, row.response_text));
+    }
   }
+  // Attached as extra properties rather than changing the return shape —
+  // existing callers destructuring `[result] = gradeAndStore(...)` or
+  // iterating the array keep working unchanged.
+  results.examRun = examRun;
+  results.similarityFlags = similarityFlags;
   return results;
 }
 

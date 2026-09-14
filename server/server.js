@@ -61,12 +61,17 @@ app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
 app.post('/api/student/exam/:topicKey/submit', submitLimiter, requireRole('student'), validate(submitSchema), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
-  const { responses } = req.body;
+  const { responses, integrityEvents } = req.body;
 
   const results = gradeAndStore(req.user.sub, topic.id, responses);
   const topicScore = topicScoreFor(req.user.sub, topic.id);
   const classAverage = classAverageFor(topic.id);
   const pendingQA = results.filter(r => r.type === 'qa').length;
+
+  if (integrityEvents && integrityEvents.length) {
+    db.prepare('INSERT INTO exam_integrity (user_id, topic_id, exam_run, events) VALUES (?, ?, ?, ?)')
+      .run(req.user.sub, topic.id, results.examRun, JSON.stringify(integrityEvents));
+  }
 
   activeExams.delete(req.user.sub);
   io.to('instructors').emit('presence:clear', { studentId: req.user.sub });
@@ -75,6 +80,14 @@ app.post('/api/student/exam/:topicKey/submit', submitLimiter, requireRole('stude
     studentId: req.user.sub, studentName: req.user.name,
     topicKey: topic.key, topicName: topic.name,
     score: topicScore, pendingQA, ts: Date.now(),
+    integrityFlags: integrityEvents ? integrityEvents.length : 0,
+  });
+
+  results.similarityFlags.forEach((flag) => {
+    io.to('instructors').emit('integrity:similarity', {
+      studentName: req.user.name, matchedStudentName: flag.matchedStudentName,
+      topicName: topic.name, similarity: flag.similarity, ts: Date.now(),
+    });
   });
 
   res.json({ topicScore, classAverage, results });
@@ -136,6 +149,17 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
   const pendingByTopic = {};
   pendingCounts.forEach(r => pendingByTopic[r.topic_id] = r.n);
 
+  // Any student/topic pair with a logged tab-switch/fullscreen-exit event,
+  // or a submission caught in a cross-student similarity flag — flagged so
+  // the heatmap cell itself can show a ⚠ without opening the drawer.
+  const flaggedCells = new Set();
+  db.prepare('SELECT DISTINCT user_id, topic_id FROM exam_integrity').all()
+    .forEach((r) => flaggedCells.add(r.user_id + ':' + r.topic_id));
+  db.prepare(`
+    SELECT DISTINCT s.user_id, s.topic_id FROM similarity_flags f
+    JOIN submissions s ON s.id = f.submission_id OR s.id = f.matched_submission_id
+  `).all().forEach((r) => flaggedCells.add(r.user_id + ':' + r.topic_id));
+
   res.json({
     topics: topics.map(t => ({
       key: t.key, name: t.name,
@@ -145,6 +169,7 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
     students: students.map(s => ({
       id: s.id, name: s.display_name,
       scores: Object.fromEntries(topics.map(t => [t.key, cells[s.id][t.id] ?? null])),
+      flagged: Object.fromEntries(topics.map(t => [t.key, flaggedCells.has(s.id + ':' + t.id)])),
     })),
   });
 });
@@ -183,6 +208,40 @@ app.get('/api/instructor/remediation-impact', requireRole('instructor'), (req, r
   res.json(out);
 });
 
+// Everything the browser detected and logged during exams — tab-switches,
+// fullscreen exits, and cross-student text-similarity matches. Detected and
+// reported, never claimed to have "prevented" anything.
+app.get('/api/instructor/integrity', requireRole('instructor'), (req, res) => {
+  const eventRows = db.prepare(`
+    SELECT ei.id, ei.exam_run, ei.events, ei.created_at, u.display_name AS studentName, t.key AS topicKey, t.name AS topicName
+    FROM exam_integrity ei JOIN users u ON u.id = ei.user_id JOIN topics t ON t.id = ei.topic_id
+    ORDER BY ei.created_at DESC LIMIT 20
+  `).all().map((r) => ({
+    kind: 'events', id: r.id, studentName: r.studentName, topicKey: r.topicKey, topicName: r.topicName,
+    createdAt: r.created_at, events: parseJSON(r.events, []),
+  }));
+
+  const similarityRows = db.prepare(`
+    SELECT f.id, f.similarity, f.created_at,
+      ua.display_name AS studentName, ub.display_name AS matchedStudentName,
+      t.key AS topicKey, t.name AS topicName, i.prompt
+    FROM similarity_flags f
+    JOIN submissions sa ON sa.id = f.submission_id
+    JOIN submissions sb ON sb.id = f.matched_submission_id
+    JOIN users ua ON ua.id = sa.user_id
+    JOIN users ub ON ub.id = sb.user_id
+    JOIN topics t ON t.id = sa.topic_id
+    JOIN items i ON i.id = sa.item_id
+    ORDER BY f.created_at DESC LIMIT 20
+  `).all().map((r) => ({
+    kind: 'similarity', id: r.id, studentName: r.studentName, matchedStudentName: r.matchedStudentName,
+    topicKey: r.topicKey, topicName: r.topicName, prompt: r.prompt,
+    similarity: Math.round(r.similarity * 100), createdAt: r.created_at,
+  }));
+
+  res.json({ events: eventRows, similarity: similarityRows });
+});
+
 app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
   res.json({
     online: onlineStudents.size,
@@ -193,22 +252,45 @@ app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
 app.get('/api/instructor/detail/:studentId/:topicKey', requireRole('instructor'), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
+  const studentId = req.params.studentId;
   const subs = db.prepare(`
     SELECT s.*, i.prompt, i.options, i.correct_index, i.keywords
     FROM submissions s JOIN items i ON i.id = s.item_id
     WHERE s.user_id = ? AND s.topic_id = ? ORDER BY s.ts DESC
-  `).all(req.params.studentId, topic.id);
+  `).all(studentId, topic.id);
 
-  res.json(subs.map(s => ({
-    id: s.id, type: s.type, status: s.status, autoScore: s.auto_score,
-    misconceptionTag: s.misconception_tag, ts: s.ts,
-    prompt: s.prompt,
-    options: s.options ? parseJSON(s.options, []) : undefined,
-    selectedIndex: s.selected_index,
-    correctIndex: s.correct_index,
-    responseText: s.response_text,
-    keywords: s.keywords ? parseJSON(s.keywords, []) : undefined,
-  })));
+  const integrityEvents = db.prepare(`
+    SELECT events, created_at FROM exam_integrity WHERE user_id = ? AND topic_id = ? ORDER BY created_at DESC
+  `).all(studentId, topic.id).map((r) => ({ events: parseJSON(r.events, []), createdAt: r.created_at }));
+
+  const similarityFlags = db.prepare(`
+    SELECT f.similarity, f.created_at,
+      CASE WHEN sa.user_id = ? THEN ub.display_name ELSE ua.display_name END AS otherStudentName
+    FROM similarity_flags f
+    JOIN submissions sa ON sa.id = f.submission_id
+    JOIN submissions sb ON sb.id = f.matched_submission_id
+    JOIN users ua ON ua.id = sa.user_id
+    JOIN users ub ON ub.id = sb.user_id
+    WHERE (sa.user_id = ? OR sb.user_id = ?) AND sa.topic_id = ?
+    ORDER BY f.created_at DESC
+  `).all(studentId, studentId, studentId, topic.id).map((r) => ({
+    otherStudentName: r.otherStudentName, similarity: Math.round(r.similarity * 100), createdAt: r.created_at,
+  }));
+
+  res.json({
+    submissions: subs.map(s => ({
+      id: s.id, type: s.type, status: s.status, autoScore: s.auto_score,
+      misconceptionTag: s.misconception_tag, ts: s.ts,
+      prompt: s.prompt,
+      options: s.options ? parseJSON(s.options, []) : undefined,
+      selectedIndex: s.selected_index,
+      correctIndex: s.correct_index,
+      responseText: s.response_text,
+      keywords: s.keywords ? parseJSON(s.keywords, []) : undefined,
+    })),
+    integrityEvents,
+    similarityFlags,
+  });
 });
 
 app.get('/api/instructor/pending-qa', requireRole('instructor'), (req, res) => {

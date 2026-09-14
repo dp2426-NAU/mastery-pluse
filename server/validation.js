@@ -16,8 +16,14 @@ const responseItemSchema = z.object({
   confidence: z.number().optional(),
 });
 
+const integrityEventSchema = z.object({
+  type: z.string(),
+  ts: z.number(),
+});
+
 const submitSchema = z.object({
   responses: z.array(responseItemSchema).min(1, 'Submit at least one answer.'),
+  integrityEvents: z.array(integrityEventSchema).max(200).optional(),
 });
 
 const reviewSchema = z.object({

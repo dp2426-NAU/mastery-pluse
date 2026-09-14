@@ -64,7 +64,35 @@
     });
   }
 
-  function renderItemInput(item, container, onChange) {
+  // ---- exam integrity: detected and logged, never claimed to "prevent"
+  // anything a browser genuinely can't stop (like a tab close). ----
+  let integrityEvents = [];
+  let watchingIntegrity = false;
+  function logIntegrityEvent(type) { integrityEvents.push({ type, ts: Date.now() }); }
+  function onVisibilityChange() { if (document.hidden) logIntegrityEvent('tab-hidden'); }
+  function onFullscreenChange() { if (watchingIntegrity && !document.fullscreenElement) logIntegrityEvent('fullscreen-exited'); }
+  function onBeforeUnload(e) { e.preventDefault(); e.returnValue = ''; }
+
+  function startIntegrityWatch() {
+    integrityEvents = [];
+    watchingIntegrity = true;
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    // Best-effort: some browsers/contexts refuse this. Never block the exam if it does.
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }
+  function stopIntegrityWatch() {
+    watchingIntegrity = false;
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
+    window.removeEventListener('beforeunload', onBeforeUnload);
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+
+  function renderItemInput(item, container) {
     const card = document.createElement('div');
     card.className = 'item-card';
     const kindLabel = item.type === 'quiz' ? 'Quiz question' : item.type === 'task' ? 'Task' : 'Short answer';
@@ -79,7 +107,6 @@
           [...optsWrap.children].forEach(c => c.classList.remove('selected'));
           b.classList.add('selected');
           card.dataset.selectedIndex = i;
-          onChange();
           // Graded server-side instantly — the instructor sees a ✓/✗ trail
           // next to this student's name as they pick, not just an answered-count.
           socket.emit('exam:answer', { itemId: item.id, selectedIndex: i });
@@ -90,7 +117,7 @@
     } else {
       const ta = document.createElement('textarea');
       ta.placeholder = item.type === 'task' ? 'Describe your approach…' : 'Write your answer…';
-      ta.oninput = () => { card.dataset.text = ta.value; onChange(); };
+      ta.oninput = () => { card.dataset.text = ta.value; };
       card.appendChild(ta);
     }
 
@@ -140,6 +167,9 @@
     }, 1000);
   }
 
+  // One question at a time, no way back — once you move on, that answer is
+  // locked in. Matches how a real proctored exam works, and it's what makes
+  // "answered so far" a meaningful, honest number for the live presence chip.
   function buildExamView(data, submitFn, topicKey) {
     bannerArea.style.display = 'none';
     view.innerHTML = `
@@ -147,62 +177,84 @@
         <h2 style="font-family:var(--serif); margin:0;">${data.topicName}</h2>
         <div class="exam-timer" id="examTimer">--:--</div>
       </div>
-      <div id="items"></div>
-      <div class="submit-row"><button id="submitExam">Submit</button></div>`;
-    const itemsEl = document.getElementById('items');
+      <div class="progress-dots" id="progressDots"></div>
+      <div id="itemStage"></div>
+      <div class="submit-row"><button id="nextBtn"></button></div>
+      <p class="lock-note">Once you move to the next question you can't come back to this one — answer carefully.</p>
+    `;
+    const stage = document.getElementById('itemStage');
+    const dotsEl = document.getElementById('progressDots');
+    const nextBtn = document.getElementById('nextBtn');
 
-    // Tell the instructor dashboard this student is starting — it lights up
-    // a live progress chip immediately, before a single question is answered.
     socket.emit('exam:start', { topicKey, topicName: data.topicName, total: data.items.length });
+    startIntegrityWatch();
 
-    let answeredCount = -1;
-    const reportProgress = () => {
-      const answered = [...itemsEl.children].filter(c => {
-        if (c.dataset.type === 'quiz') return c.dataset.selectedIndex !== undefined;
-        return (c.dataset.text || '').trim().length > 0;
-      }).length;
-      if (answered === answeredCount) return;
-      answeredCount = answered;
-      socket.emit('exam:progress', { answered });
-    };
+    const locked = [];
+    let index = 0;
 
-    data.items.forEach(it => renderItemInput(it, itemsEl, reportProgress));
+    function renderDots() {
+      dotsEl.innerHTML = data.items.map((_, i) => {
+        const cls = i < index ? 'done' : i === index ? 'current' : 'upcoming';
+        return `<span class="dot ${cls}"></span>`;
+      }).join('');
+    }
+
+    function renderStep() {
+      stage.innerHTML = '';
+      renderItemInput(data.items[index], stage);
+      renderDots();
+      nextBtn.textContent = index === data.items.length - 1 ? 'Submit' : 'Next question →';
+      socket.emit('exam:progress', { answered: index });
+    }
+
+    function finalizeCurrent() {
+      const card = stage.firstElementChild;
+      if (!card) return;
+      const base = { itemId: Number(card.dataset.itemId), type: card.dataset.type, confidence: Number(card.dataset.confidence) };
+      if (card.dataset.type === 'quiz') base.selectedIndex = card.dataset.selectedIndex !== undefined ? Number(card.dataset.selectedIndex) : -1;
+      else base.text = card.dataset.text || '';
+      locked.push(base);
+    }
 
     let submitted = false;
     const doSubmit = async () => {
       if (submitted) return;
       submitted = true;
       clearExamTimer();
-      const cards = [...itemsEl.children];
-      const responses = cards.map(c => {
-        const base = { itemId: Number(c.dataset.itemId), type: c.dataset.type, confidence: Number(c.dataset.confidence) };
-        if (c.dataset.type === 'quiz') base.selectedIndex = c.dataset.selectedIndex !== undefined ? Number(c.dataset.selectedIndex) : -1;
-        else base.text = c.dataset.text || '';
-        return base;
-      });
-      const result = await submitFn(responses);
+      stopIntegrityWatch();
+      socket.emit('exam:progress', { answered: data.items.length });
+      const result = await submitFn(locked, integrityEvents.slice());
       renderResults(data, result);
     };
-    document.getElementById('submitExam').onclick = doSubmit;
+
+    nextBtn.onclick = () => {
+      finalizeCurrent();
+      if (index === data.items.length - 1) { doSubmit(); return; }
+      index += 1;
+      renderStep();
+    };
+
+    renderStep();
 
     startExamTimer(data.timeLimitSeconds || 300, () => {
       showToast('⏱ Time’s up — submitting what you’ve got.', 'warn');
+      finalizeCurrent();
       doSubmit();
     });
   }
 
   async function startExam(topicKey) {
     const data = await (await fetch('/api/student/exam/' + topicKey, { headers: H })).json();
-    buildExamView(data, async (responses) => {
-      const res = await fetch(`/api/student/exam/${topicKey}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses }) });
+    buildExamView(data, async (responses, events) => {
+      const res = await fetch(`/api/student/exam/${topicKey}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events }) });
       return res.json();
     }, topicKey);
   }
 
   async function startRemediation(remId) {
     const data = await (await fetch('/api/student/remediation/' + remId, { headers: H })).json();
-    buildExamView(data, async (responses) => {
-      const res = await fetch(`/api/student/exam/${data.topic}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses }) });
+    buildExamView(data, async (responses, events) => {
+      const res = await fetch(`/api/student/exam/${data.topic}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events }) });
       return res.json();
     }, data.topic);
   }

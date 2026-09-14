@@ -32,6 +32,12 @@
   .exam-timer.warn{ color:var(--warn); border-color:var(--warn); }
   .exam-timer.critical{ color:var(--bad); border-color:var(--bad); animation:pulse .8s infinite; }
 
+  .progress-dots{ display:flex; gap:6px; justify-content:center; margin-bottom:18px; flex-wrap:wrap; }
+  .progress-dots .dot{ width:9px; height:9px; border-radius:50%; background:var(--line); }
+  .progress-dots .dot.done{ background:var(--good); }
+  .progress-dots .dot.current{ background:var(--accent); transform:scale(1.3); }
+  .lock-note{ text-align:center; font-size:.76rem; color:var(--text-muted); margin-top:14px; }
+
   .item-card{ background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:24px; margin-bottom:16px; }
   .confidence{ margin-top:18px; padding-top:14px; border-top:1px solid var(--line); }
   .confidence label{ display:flex; justify-content:space-between; margin:0 0 8px; font-size:.78rem; }

@@ -6,6 +6,14 @@ A real-time exam platform for a graduate IT/CS course, covering **Cybersecurity,
 
 Built for the course topic **"Designing a Client-Server Architecture for Web Applications."**
 
+## Exam integrity
+
+Three real, honest features — no fake "AI-detector," since those (Turnitin, GPTZero, etc.) are unreliable paid services that produce real false accusations against genuine student writing:
+
+- **One-way answer lock**: exams are one question at a time. Once you move to the next question, the previous one is locked — no going back to change an answer, same as a real proctored exam.
+- **Integrity event trail**: the browser detects and logs tab-switches and fullscreen exits during an exam, timestamped, shown to the instructor per submission. This is *detected and logged*, never claimed to *prevent* anything — no website can actually stop someone from closing a tab, and this doesn't pretend otherwise.
+- **Cross-student answer-similarity detection**: every free-text answer (task/Q&A) is compared, the instant it's submitted, against every other student's answer to the same question using word-set Jaccard similarity — explainable, deterministic math, not a black-box model. A pair above 60% overlap is flagged live for instructor review ("91% overlap with Maria Okafor's answer"), and the affected heatmap cells get a ⚠ badge.
+
 ## Why two completely separate panels
 
 Students and instructors are different roles with different data access, so they get different logins, different UIs, and different API permissions — not one screen with a toggle. A student's JWT cannot call any `/api/instructor/*` route, and vice versa (see `server/auth.js`).

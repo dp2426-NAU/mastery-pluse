@@ -61,6 +61,28 @@ CREATE TABLE IF NOT EXISTS remediations (
   before_avg REAL,         -- class average for the topic at the moment remediation was sent
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Browser-detected integrity signals for one exam attempt (tab left,
+-- fullscreen exited). Detected and logged, never claimed to "prevent"
+-- anything -- a browser genuinely cannot stop a tab being closed.
+CREATE TABLE IF NOT EXISTS exam_integrity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  topic_id INTEGER NOT NULL REFERENCES topics(id),
+  exam_run INTEGER NOT NULL,
+  events TEXT NOT NULL, -- JSON array of {type, ts}
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Cross-student free-text similarity, computed the instant a task/Q&A
+-- response is submitted, against every prior response to the same item.
+CREATE TABLE IF NOT EXISTS similarity_flags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  submission_id INTEGER NOT NULL REFERENCES submissions(id),
+  matched_submission_id INTEGER NOT NULL REFERENCES submissions(id),
+  similarity REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
 // Lightweight migration: CREATE TABLE IF NOT EXISTS won't add columns to a

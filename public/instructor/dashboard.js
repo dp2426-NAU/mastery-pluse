@@ -102,7 +102,8 @@
         const key = s.id + ':' + t.key;
         nextScores[key] = score;
         const changed = flashKey && key === flashKey;
-        html += `<td><span class="cell ${band(score)}${changed ? ' flash' : ''}" data-student="${s.id}" data-topic="${t.key}" data-name="${s.name}" data-topicname="${t.name}" data-key="${key}">${score == null ? '—' : score + '%'}</span></td>`;
+        const flagged = s.flagged && s.flagged[t.key];
+        html += `<td><span class="cell ${band(score)}${changed ? ' flash' : ''}" data-student="${s.id}" data-topic="${t.key}" data-name="${s.name}" data-topicname="${t.name}" data-key="${key}">${score == null ? '—' : score + '%'}${flagged ? '<span class="flag-badge" title="Integrity flag on this topic">⚠</span>' : ''}</span></td>`;
       });
       html += '</tr>';
     });
@@ -127,7 +128,20 @@
   }
 
   async function openDetail(studentId, topicKey, studentName, topicName) {
-    const subs = await (await fetch(`/api/instructor/detail/${studentId}/${topicKey}`, { headers: H })).json();
+    const data = await (await fetch(`/api/instructor/detail/${studentId}/${topicKey}`, { headers: H })).json();
+    const subs = data.submissions;
+
+    const integrityHtml = (data.integrityEvents || []).map((run) => {
+      const items = run.events.map((e) => `${e.type.replace(/-/g, ' ')} at ${new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`).join(', ');
+      return `<div class="detail-item pending"><strong>⚠ Left the exam / exited fullscreen</strong><br>${items}</div>`;
+    }).join('');
+    const similarityHtml = (data.similarityFlags || []).map((f) =>
+      `<div class="detail-item pending"><strong>⚠ ${f.similarity}% text overlap</strong> with ${f.otherStudentName}'s answer to the same question</div>`
+    ).join('');
+    const flagsHtml = (integrityHtml || similarityHtml)
+      ? `<div class="flags-section"><p class="section-sub" style="margin:0 0 8px;">Integrity signals — detected and logged, never a claim of certainty</p>${integrityHtml}${similarityHtml}</div>`
+      : '';
+
     const html = subs.map(s => {
       if (s.type === 'quiz') {
         const correct = s.selectedIndex === s.correctIndex;
@@ -149,7 +163,7 @@
       </div>`;
     }).join('') || '<p class="empty">No submissions yet.</p>';
 
-    drawer.innerHTML = `<button class="close" id="closeDrawer">✕</button><h3>${studentName} — ${topicName}</h3>${html}`;
+    drawer.innerHTML = `<button class="close" id="closeDrawer">✕</button><h3>${studentName} — ${topicName}</h3>${flagsHtml}${html}`;
     document.getElementById('closeDrawer').onclick = () => overlay.classList.remove('open');
     overlay.classList.add('open');
   }
@@ -234,6 +248,24 @@
     }).join('');
   }
 
+  async function loadIntegrity() {
+    const data = await (await fetch('/api/instructor/integrity', { headers: H })).json();
+    const el = document.getElementById('integrityPanel');
+    const rows = [
+      ...data.events.map((e) => ({
+        html: `<strong>⚠ ${e.studentName}</strong> left the exam or exited fullscreen during <strong>${e.topicName}</strong> (${e.events.length} event${e.events.length === 1 ? '' : 's'})`,
+        ts: e.createdAt,
+      })),
+      ...data.similarity.map((s) => ({
+        html: `<strong>⚠ ${s.similarity}% overlap</strong> between ${s.studentName} and ${s.matchedStudentName} on a ${s.topicName} question`,
+        ts: s.createdAt,
+      })),
+    ].sort((a, b) => (a.ts < b.ts ? 1 : -1));
+
+    if (!rows.length) { el.innerHTML = '<p class="empty">Nothing flagged. Detected and logged only — never a claim of certainty.</p>'; return; }
+    el.innerHTML = rows.map((r) => `<div class="integrity-item">${r.html}</div>`).join('');
+  }
+
   // ---- live presence: students currently mid-exam, before they've submitted ----
   const activeByStudent = new Map(); // studentId -> {studentName, topicName, answered, total}
 
@@ -267,13 +299,23 @@
 
   socket.on('exam:submitted', (payload) => {
     showToast(`${payload.studentName} submitted ${payload.topicName} — ${payload.score}%${payload.pendingQA ? ` (${payload.pendingQA} pending review)` : ''}`, 'good');
-    pushFeedItem(`<span>🟢 <strong>${payload.studentName}</strong> submitted <strong>${payload.topicName}</strong> — scored ${payload.score}%</span><span class="time">${timeLabel(payload.ts)}</span>`);
+    pushFeedItem(`<span>🟢 <strong>${payload.studentName}</strong> submitted <strong>${payload.topicName}</strong> — scored ${payload.score}%${payload.integrityFlags ? ` <span class="tag" style="margin-left:4px;">⚠ ${payload.integrityFlags} integrity event${payload.integrityFlags === 1 ? '' : 's'}</span>` : ''}</span><span class="time">${timeLabel(payload.ts)}</span>`);
     playBeep(880, 0.12);
     flashEventBar('var(--good)');
     loadHeatmap(payload.studentId + ':' + payload.topicKey);
     loadMisconceptions();
     loadRemediationImpact();
+    if (payload.integrityFlags) loadIntegrity();
     if (payload.pendingQA) loadQAQueue();
+  });
+
+  socket.on('integrity:similarity', (payload) => {
+    showToast(`⚠ ${payload.similarity}% overlap: ${payload.studentName} vs. ${payload.matchedStudentName} (${payload.topicName})`, 'warn');
+    pushFeedItem(`<span>⚠ <strong>${payload.similarity}% overlap</strong> — ${payload.studentName} & ${payload.matchedStudentName}, ${payload.topicName}</span><span class="time">${timeLabel(payload.ts)}</span>`);
+    playBeep(440, 0.2);
+    flashEventBar('var(--bad)');
+    loadIntegrity();
+    loadHeatmap();
   });
 
   socket.on('qa:reviewed', (payload) => {
@@ -297,5 +339,6 @@
   loadQAQueue();
   loadMisconceptions();
   loadRemediationImpact();
+  loadIntegrity();
   loadPresenceSnapshot();
 })();
