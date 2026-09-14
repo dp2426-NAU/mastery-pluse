@@ -1,9 +1,12 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const dbPath = path.join(__dirname, 'mastery-pulse.db');
+// DB_PATH lets tests point this at ':memory:' (or a throwaway file) instead
+// of the real dev/prod database — set it before this module is first
+// required, since the connection opens immediately below.
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'mastery-pulse.db');
 const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
+if (dbPath !== ':memory:') db.pragma('journal_mode = WAL'); // WAL needs a real file on disk
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (

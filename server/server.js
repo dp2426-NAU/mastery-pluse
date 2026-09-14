@@ -6,6 +6,9 @@ const { Server } = require('socket.io');
 
 const db = require('./db');
 const { login, verifyToken, requireRole } = require('./auth');
+const { parseJSON, timeLimitFor, topicScoreFor, classAverageFor, gradeAndStore } = require('./grading');
+const { validate, loginSchema, submitSchema, reviewSchema, remediateSchema } = require('./validation');
+const { loginLimiter, submitLimiter } = require('./rate-limit');
 
 const app = express();
 app.use(express.json());
@@ -15,87 +18,22 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 const server = createServer(app);
 const io = new Server(server);
 
-const parseJSON = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } catch { return fallback; } };
+app.get('/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // ---------- Auth ----------
-app.post('/api/auth/student/login', (req, res) => {
-  const { username, password } = req.body || {};
+app.post('/api/auth/student/login', loginLimiter, validate(loginSchema), (req, res) => {
+  const { username, password } = req.body;
   const result = login(username, password, 'student');
   if (result.error) return res.status(401).json(result);
   res.json(result);
 });
 
-app.post('/api/auth/instructor/login', (req, res) => {
-  const { username, password } = req.body || {};
+app.post('/api/auth/instructor/login', loginLimiter, validate(loginSchema), (req, res) => {
+  const { username, password } = req.body;
   const result = login(username, password, 'instructor');
   if (result.error) return res.status(401).json(result);
   res.json(result);
 });
-
-// ---------- Grading ----------
-function gradeAndStore(userId, topicId, responses) {
-  const examRun = Date.now();
-  const results = [];
-  const getItem = db.prepare('SELECT * FROM items WHERE id = ?');
-  const insert = db.prepare(`
-    INSERT INTO submissions (user_id, topic_id, item_id, type, selected_index, response_text, auto_score, misconception_tag, confidence, status, exam_run)
-    VALUES (@user_id, @topic_id, @item_id, @type, @selected_index, @response_text, @auto_score, @misconception_tag, @confidence, @status, @exam_run)
-  `);
-
-  for (const r of responses) {
-    const item = getItem.get(r.itemId);
-    if (!item || item.topic_id !== topicId) continue;
-
-    const confidence = Number.isFinite(Number(r.confidence)) ? Math.max(1, Math.min(5, Number(r.confidence))) : null;
-
-    let row = {
-      user_id: userId, topic_id: topicId, item_id: item.id, type: item.type,
-      selected_index: null, response_text: null, auto_score: null,
-      misconception_tag: null, confidence, status: 'graded', exam_run: examRun,
-    };
-
-    if (item.type === 'quiz') {
-      const options = parseJSON(item.options, []);
-      const misconceptions = parseJSON(item.misconceptions, []);
-      const selected = Number(r.selectedIndex);
-      const correct = selected === item.correct_index;
-      row.selected_index = selected;
-      row.auto_score = correct ? 100 : 0;
-      row.misconception_tag = correct ? null : (misconceptions[selected] || null);
-      results.push({ itemId: item.id, type: 'quiz', correct, correctIndex: item.correct_index, options, question: item.prompt, confidence });
-    } else if (item.type === 'task') {
-      const keywords = parseJSON(item.keywords, []);
-      const text = (r.text || '').toLowerCase();
-      const matched = keywords.filter(k => text.includes(k.toLowerCase()));
-      const score = keywords.length ? Math.round((matched.length / keywords.length) * 100) : 0;
-      row.response_text = r.text || '';
-      row.auto_score = score;
-      results.push({ itemId: item.id, type: 'task', score, matched, missing: keywords.filter(k => !matched.includes(k)) });
-    } else { // qa
-      row.response_text = r.text || '';
-      row.status = 'pending_review';
-      results.push({ itemId: item.id, type: 'qa', status: 'pending_review' });
-    }
-
-    insert.run(row);
-  }
-  return results;
-}
-
-function topicScoreFor(userId, topicId) {
-  const row = db.prepare(`
-    SELECT AVG(auto_score) AS avg FROM submissions
-    WHERE user_id = ? AND topic_id = ? AND status = 'graded'
-  `).get(userId, topicId);
-  return row.avg == null ? null : Math.round(row.avg);
-}
-
-function classAverageFor(topicId) {
-  const row = db.prepare(`
-    SELECT AVG(auto_score) AS avg FROM submissions WHERE topic_id = ? AND status = 'graded'
-  `).get(topicId);
-  return row.avg == null ? null : Math.round(row.avg);
-}
 
 // ---------- Student API ----------
 app.get('/api/student/topics', requireRole('student'), (req, res) => {
@@ -104,11 +42,6 @@ app.get('/api/student/topics', requireRole('student'), (req, res) => {
     key: t.key, name: t.name, myScore: topicScoreFor(req.user.sub, t.id),
   })));
 });
-
-// 90s/item, floor of 4 minutes so a short remediation set isn't a 45-second sprint.
-function timeLimitFor(itemCount) {
-  return Math.max(240, itemCount * 90);
-}
 
 app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
@@ -125,10 +58,10 @@ app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
   });
 });
 
-app.post('/api/student/exam/:topicKey/submit', requireRole('student'), (req, res) => {
+app.post('/api/student/exam/:topicKey/submit', submitLimiter, requireRole('student'), validate(submitSchema), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
-  const responses = (req.body && req.body.responses) || [];
+  const { responses } = req.body;
 
   const results = gradeAndStore(req.user.sub, topic.id, responses);
   const topicScore = topicScoreFor(req.user.sub, topic.id);
@@ -291,9 +224,9 @@ app.get('/api/instructor/pending-qa', requireRole('instructor'), (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/instructor/review', requireRole('instructor'), (req, res) => {
-  const { submissionId, score } = req.body || {};
-  const clamped = Math.max(0, Math.min(100, Number(score)));
+app.post('/api/instructor/review', requireRole('instructor'), validate(reviewSchema), (req, res) => {
+  const { submissionId, score } = req.body;
+  const clamped = Math.max(0, Math.min(100, score));
   db.prepare("UPDATE submissions SET auto_score = ?, status = 'graded' WHERE id = ?").run(clamped, submissionId);
   const sub = db.prepare(`
     SELECT s.*, u.display_name AS studentName, t.name AS topicName, t.key AS topicKey
@@ -307,8 +240,8 @@ app.post('/api/instructor/review', requireRole('instructor'), (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/instructor/remediate', requireRole('instructor'), (req, res) => {
-  const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get((req.body || {}).topicKey);
+app.post('/api/instructor/remediate', requireRole('instructor'), validate(remediateSchema), (req, res) => {
+  const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.body.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
 
   let missed = db.prepare(`
@@ -408,4 +341,12 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Mastery Pulse server listening on ${PORT}`));
+// Only actually bind a port when this file is run directly (`node
+// server/server.js` / `npm start`) — not when a test file requires `app` to
+// drive it with supertest, which would otherwise leave a real listener on
+// :3000 fighting with dev servers and other test files for the port.
+if (require.main === module) {
+  server.listen(PORT, () => console.log(`Mastery Pulse server listening on ${PORT}`));
+}
+
+module.exports = { app, server, io };

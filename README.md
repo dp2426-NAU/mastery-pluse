@@ -1,5 +1,7 @@
 # Mastery Pulse
 
+![CI](https://github.com/dp2426-NAU/mastery-pluse/actions/workflows/ci.yml/badge.svg)
+
 A real-time exam platform for a graduate IT/CS course, covering **Cybersecurity, Web Technology, Networking, Cloud Computing, and Full Stack Development**. Students take a mixed-format exam per topic — quiz, task, and short-answer Q&A — and the moment they submit, the instructor's dashboard shows a live weak-topic heatmap: exactly which topics that student, and the class as a whole, are struggling with.
 
 Built for the course topic **"Designing a Client-Server Architecture for Web Applications."**
@@ -40,6 +42,27 @@ npm start            # starts the server on http://localhost:3000
 | Student | `student1` … `student10` | `Pulse#Student1` … `Pulse#Student10` |
 
 (Same pattern for all ten: `studentN` / `Pulse#StudentN`.)
+
+## Testing, validation, and hardening
+
+This isn't just manually-clicked-through — the grading engine, role-based access control, input handling, and the real-time channel all have automated tests that actually exercise the running app, not mocks.
+
+```bash
+npm test
+```
+
+45 tests across 4 suites, run on every push via GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
+
+- **`tests/grading.test.js`** — unit tests against the real seeded content (`server/grading.js`): correct/wrong quiz scoring, the misconception tag mapped to the *specific* wrong option chosen, keyword-coverage scoring for tasks, confidence clamping, and confirming a pending Q&A never counts toward a topic average.
+- **`tests/auth.test.js`** — login success/failure paths, and `requireRole()` middleware rejecting a wrong-role token before a route handler ever runs.
+- **`tests/api.test.js`** — integration tests via `supertest` against the real Express app: cross-role rejection (an instructor token really can't call `/api/student/*`, and vice versa — this is the acceptance-checklist item, verified, not asserted), input validation returning 400s on malformed bodies, and a full mixed-type submit flow.
+- **`tests/realtime.test.js`** — a real HTTP server on an ephemeral port with real `socket.io-client` connections: a forged token gets rejected at the handshake, `exam:submitted` reaches an open instructor socket, a live quiz pick shows up as `presence:progress` before submission, and `remediation:new` reaches an open student socket.
+
+Two more layers beyond tests:
+- **Input validation** ([server/validation.js](server/validation.js), via `zod`) — every request body is checked against a schema before the route handler runs; a malformed request gets a specific 400, not a 500 or silent bad behavior.
+- **Rate limiting** ([server/rate-limit.js](server/rate-limit.js)) — login attempts are capped (defends against brute-forcing a password) and exam submissions are capped (defends against a scripted spam loop), both disabled automatically under `NODE_ENV=test` so the test suite isn't throttled.
+
+`GET /health` returns `{ ok: true }` unauthenticated, for uptime checks (Render, UptimeRobot, etc.) without needing a real login.
 
 Open the instructor dashboard in one tab and a student login in another (or incognito) to watch the heatmap update live as exams are submitted.
 
