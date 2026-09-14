@@ -15,4 +15,9 @@ jobs:
         with:
           node-version: '20'
       - run: npm install
+      # better-sqlite3's prebuilt binary occasionally mismatches the exact
+      # Node ABI a runner image ships, which segfaults the whole process
+      # before a single test can run. Building from source on the runner
+      # itself removes that class of failure entirely.
+      - run: npm rebuild better-sqlite3 --build-from-source
       - run: npm test
