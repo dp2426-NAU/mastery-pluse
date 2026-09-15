@@ -32,6 +32,22 @@
   .exam-timer.warn{ color:var(--warn); border-color:var(--warn); }
   .exam-timer.critical{ color:var(--bad); border-color:var(--bad); animation:pulse .8s infinite; }
 
+  .cam-status{ font-family:var(--mono); font-size:.72rem; color:var(--text-muted); white-space:nowrap; }
+
+  .consent-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center;
+    padding:20px; z-index:70;
+  }
+  .consent-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:24px 26px; max-width:420px; width:100%;
+  }
+  .consent-title{ font-family:var(--serif); font-size:1.1rem; margin:0 0 10px; }
+  .consent-body{ font-size:.86rem; color:var(--text-muted); line-height:1.5; margin:0 0 18px; }
+  .consent-actions{ display:flex; flex-direction:column; gap:8px; }
+  .consent-actions button{ margin:0; padding:11px; }
+  .consent-decline{ background:transparent; color:var(--text-muted); border:1px solid var(--line); }
+
   .progress-dots{ display:flex; gap:6px; justify-content:center; margin-bottom:18px; flex-wrap:wrap; }
   .progress-dots .dot{ width:9px; height:9px; border-radius:50%; background:var(--line); }
   .progress-dots .dot.done{ background:var(--good); }
@@ -79,6 +95,7 @@
   </div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/live.js"></script>
+  <script src="/student/webcam-monitor.js"></script>
   <script src="/student/app.js"></script>
 </body>
 </html>

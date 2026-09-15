@@ -118,6 +118,18 @@
   .integrity-item:last-child{ border-bottom:none; }
   .flags-section{ background:rgba(226,88,63,.08); border:1px solid var(--bad); border-radius:8px; padding:12px 14px; margin-bottom:14px; }
   .flags-section .detail-item{ background:var(--surface); }
+
+  /* webcam proctoring alerts */
+  .cam-panel{ background:var(--surface); border:1px solid var(--bad); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; }
+  .cam-item{
+    display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid var(--line); font-size:.86rem;
+  }
+  .cam-item:last-child{ border-bottom:none; }
+  .cam-item .thumb{
+    width:64px; height:48px; object-fit:cover; border-radius:6px; border:1px solid var(--line); flex-shrink:0; background:var(--surface-2);
+  }
+  .cam-item .cam-meta{ font-family:var(--mono); font-size:.7rem; color:var(--text-muted); margin-top:2px; }
+  .cam-thumb-lg{ width:100%; max-width:280px; border-radius:8px; border:1px solid var(--line); margin-top:8px; display:block; }
 </style>
 </head>
 <body>
@@ -155,6 +167,10 @@
     <p class="section-title" style="margin-top:30px;">Exam Integrity</p>
     <p class="section-sub">Browser-detected signals only — a tab switched away, fullscreen exited, or unusually high text overlap between two students' answers. Detected and logged, never a claim of certainty.</p>
     <div class="integrity-panel" id="integrityPanel"></div>
+
+    <p class="section-title" style="margin-top:30px;">🎥 Proctoring Alerts</p>
+    <p class="section-sub">Client-side face detection (head turn / eyes closed) flags a student after 3+ moments looking away from the screen — a browser-side estimate, not proof, with a single snapshot for context. No video is ever recorded or streamed.</p>
+    <div class="cam-panel" id="camPanel"></div>
 
     <p class="section-title" style="margin-top:30px;">Pending Q&amp;A review</p>
     <p class="section-sub">Free-text answers aren't auto-graded — score them here and the heatmap updates immediately.</p>

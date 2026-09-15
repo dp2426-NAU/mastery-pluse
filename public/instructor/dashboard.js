@@ -103,7 +103,8 @@
         nextScores[key] = score;
         const changed = flashKey && key === flashKey;
         const flagged = s.flagged && s.flagged[t.key];
-        html += `<td><span class="cell ${band(score)}${changed ? ' flash' : ''}" data-student="${s.id}" data-topic="${t.key}" data-name="${s.name}" data-topicname="${t.name}" data-key="${key}">${score == null ? '—' : score + '%'}${flagged ? '<span class="flag-badge" title="Integrity flag on this topic">⚠</span>' : ''}</span></td>`;
+        const webcamFlagged = s.webcamFlagged && s.webcamFlagged[t.key];
+        html += `<td><span class="cell ${band(score)}${changed ? ' flash' : ''}" data-student="${s.id}" data-topic="${t.key}" data-name="${s.name}" data-topicname="${t.name}" data-key="${key}">${score == null ? '—' : score + '%'}${flagged ? '<span class="flag-badge" title="Integrity flag on this topic">⚠</span>' : ''}${webcamFlagged ? '<span class="flag-badge" title="Webcam attention alert on this topic">🎥</span>' : ''}</span></td>`;
       });
       html += '</tr>';
     });
@@ -138,8 +139,14 @@
     const similarityHtml = (data.similarityFlags || []).map((f) =>
       `<div class="detail-item pending"><strong>⚠ ${f.similarity}% text overlap</strong> with ${f.otherStudentName}'s answer to the same question</div>`
     ).join('');
-    const flagsHtml = (integrityHtml || similarityHtml)
-      ? `<div class="flags-section"><p class="section-sub" style="margin:0 0 8px;">Integrity signals — detected and logged, never a claim of certainty</p>${integrityHtml}${similarityHtml}</div>`
+    const webcamHtml = (data.webcamAlerts || []).map((w) => `
+      <div class="detail-item pending">
+        <strong>🎥 ${w.count} webcam attention alert${w.count === 1 ? '' : 's'}</strong> at ${new Date(w.createdAt + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        ${w.snapshot ? `<img class="cam-thumb-lg" src="${w.snapshot}" alt="Snapshot captured at the flagged moment">` : ''}
+      </div>`
+    ).join('');
+    const flagsHtml = (integrityHtml || similarityHtml || webcamHtml)
+      ? `<div class="flags-section"><p class="section-sub" style="margin:0 0 8px;">Integrity signals — detected and logged, never a claim of certainty</p>${integrityHtml}${similarityHtml}${webcamHtml}</div>`
       : '';
 
     const html = subs.map(s => {
@@ -266,6 +273,21 @@
     el.innerHTML = rows.map((r) => `<div class="integrity-item">${r.html}</div>`).join('');
   }
 
+  async function loadWebcamAlerts() {
+    const rows = await (await fetch('/api/instructor/webcam-alerts', { headers: H })).json();
+    const el = document.getElementById('camPanel');
+    if (!rows.length) { el.innerHTML = '<p class="empty">No webcam attention alerts. Detected and logged only — never a claim of certainty.</p>'; return; }
+    el.innerHTML = rows.map((r) => `
+      <div class="cam-item">
+        ${r.snapshot ? `<img class="thumb" src="${r.snapshot}" alt="Snapshot at flagged moment">` : '<div class="thumb"></div>'}
+        <div>
+          <div><strong>${r.studentName}</strong> — ${r.topicName}</div>
+          <div class="cam-meta">${r.count} attention alert${r.count === 1 ? '' : 's'} · ${timeLabel(r.createdAt + 'Z')}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
   // ---- live presence: students currently mid-exam, before they've submitted ----
   const activeByStudent = new Map(); // studentId -> {studentName, topicName, answered, total}
 
@@ -318,6 +340,15 @@
     loadHeatmap();
   });
 
+  socket.on('integrity:webcamAlert', (payload) => {
+    showToast(`🎥 ${payload.studentName} flagged ${payload.count}× — looking away during ${payload.topicName}`, 'warn');
+    pushFeedItem(`<span>🎥 <strong>${payload.studentName}</strong> flagged ${payload.count}× for looking away — ${payload.topicName}</span><span class="time">${timeLabel(payload.ts)}</span>`);
+    playBeep(520, 0.2);
+    flashEventBar('var(--bad)');
+    loadWebcamAlerts();
+    loadHeatmap();
+  });
+
   socket.on('qa:reviewed', (payload) => {
     showToast(`Graded ${payload.studentName}'s ${payload.topicName} Q&A — ${payload.score}%`, 'warn');
     pushFeedItem(`<span>📝 Graded <strong>${payload.studentName}</strong>'s ${payload.topicName} short answer — ${payload.score}%</span><span class="time">${timeLabel()}</span>`);
@@ -340,5 +371,6 @@
   loadMisconceptions();
   loadRemediationImpact();
   loadIntegrity();
+  loadWebcamAlerts();
   loadPresenceSnapshot();
 })();

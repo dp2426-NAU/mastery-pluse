@@ -92,6 +92,50 @@
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
   }
 
+  // ---- webcam attention monitoring: runs entirely in this tab (see
+  // webcam-monitor.js) — no video ever leaves the browser. A short consent
+  // notice is shown before the camera is requested; declining just skips
+  // monitoring rather than blocking the exam. ----
+  let webcamActive = false;
+  let currentTopicKey = null;
+
+  function showConsentThenStart(onDone) {
+    const overlay = document.createElement('div');
+    overlay.className = 'consent-overlay';
+    overlay.innerHTML = `
+      <div class="consent-card">
+        <p class="consent-title">📷 Proctoring notice</p>
+        <p class="consent-body">This exam checks, using your camera, whether you're looking at the screen — as part of your course's academic integrity policy. Detection runs only in your browser; no video is recorded or uploaded. If you're flagged 3+ times, your instructor sees a timestamp, a count, and one still image — nothing else.</p>
+        <div class="consent-actions">
+          <button type="button" class="consent-decline">Continue without camera</button>
+          <button type="button" class="consent-accept">Enable camera &amp; continue</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('.consent-accept').onclick = () => { overlay.remove(); onDone(true); };
+    overlay.querySelector('.consent-decline').onclick = () => { overlay.remove(); onDone(false); };
+  }
+
+  function setCamStatus(text) {
+    const el = document.getElementById('camStatus');
+    if (el) el.textContent = text;
+  }
+
+  async function startWebcamMonitor() {
+    if (!window.MasteryPulseWebcam) { setCamStatus('🎥 Camera monitoring unavailable'); return; }
+    setCamStatus('🎥 Starting camera…');
+    const result = await window.MasteryPulseWebcam.start((count, snapshot) => {
+      socket.emit('exam:webcamAlert', { topicKey: currentTopicKey, count, snapshot });
+    });
+    webcamActive = result.ok;
+    setCamStatus(result.ok ? '🎥 Camera monitoring on' : '🎥 Camera unavailable — continuing without it');
+  }
+
+  function stopWebcamMonitor() {
+    if (webcamActive && window.MasteryPulseWebcam) window.MasteryPulseWebcam.stop();
+    webcamActive = false;
+  }
+
   function renderItemInput(item, container) {
     const card = document.createElement('div');
     card.className = 'item-card';
@@ -171,10 +215,12 @@
   // locked in. Matches how a real proctored exam works, and it's what makes
   // "answered so far" a meaningful, honest number for the live presence chip.
   function buildExamView(data, submitFn, topicKey) {
+    currentTopicKey = topicKey;
     bannerArea.style.display = 'none';
     view.innerHTML = `
       <div class="exam-head">
         <h2 style="font-family:var(--serif); margin:0;">${data.topicName}</h2>
+        <span class="cam-status" id="camStatus"></span>
         <div class="exam-timer" id="examTimer">--:--</div>
       </div>
       <div class="progress-dots" id="progressDots"></div>
@@ -188,6 +234,10 @@
 
     socket.emit('exam:start', { topicKey, topicName: data.topicName, total: data.items.length });
     startIntegrityWatch();
+    showConsentThenStart((accepted) => {
+      if (accepted) startWebcamMonitor();
+      else setCamStatus('🎥 Camera monitoring declined');
+    });
 
     const locked = [];
     let index = 0;
@@ -222,6 +272,7 @@
       submitted = true;
       clearExamTimer();
       stopIntegrityWatch();
+      stopWebcamMonitor();
       socket.emit('exam:progress', { answered: data.items.length });
       const result = await submitFn(locked, integrityEvents.slice());
       renderResults(data, result);

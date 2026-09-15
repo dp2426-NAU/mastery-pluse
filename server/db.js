@@ -83,6 +83,22 @@ CREATE TABLE IF NOT EXISTS similarity_flags (
   similarity REAL NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Browser-side webcam attention signals: the student's browser runs face
+-- landmark detection locally (nothing is streamed anywhere) and reports a
+-- "3rd strike" the moment a student looks away / closes their eyes for a
+-- sustained stretch three or more times in one sitting. One row per strike
+-- reported, each with an optional single still-frame snapshot captured at
+-- that instant (never a video, never continuous frames).
+CREATE TABLE IF NOT EXISTS webcam_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  topic_id INTEGER NOT NULL REFERENCES topics(id),
+  exam_run INTEGER NOT NULL,
+  strike_count INTEGER NOT NULL,
+  snapshot TEXT, -- base64 JPEG data URL, may be null if the student declined the snapshot/camera
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
 // Lightweight migration: CREATE TABLE IF NOT EXISTS won't add columns to a

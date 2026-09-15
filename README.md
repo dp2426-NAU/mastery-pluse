@@ -14,6 +14,17 @@ Three real, honest features — no fake "AI-detector," since those (Turnitin, GP
 - **Integrity event trail**: the browser detects and logs tab-switches and fullscreen exits during an exam, timestamped, shown to the instructor per submission. This is *detected and logged*, never claimed to *prevent* anything — no website can actually stop someone from closing a tab, and this doesn't pretend otherwise.
 - **Cross-student answer-similarity detection**: every free-text answer (task/Q&A) is compared, the instant it's submitted, against every other student's answer to the same question using word-set Jaccard similarity — explainable, deterministic math, not a black-box model. A pair above 60% overlap is flagged live for instructor review ("91% overlap with Maria Okafor's answer"), and the affected heatmap cells get a ⚠ badge.
 
+## Webcam proctoring alerts
+
+A fourth integrity signal, alongside the answer lock, event trail, and similarity detection above — this one uses the camera.
+
+- **Fully client-side detection.** The moment a student starts an exam (after a one-time consent notice), their browser runs [MediaPipe's Face Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker) — a face-landmark model that downloads and runs entirely inside the tab via WebAssembly. It estimates head yaw (is the face turned away?) and eye closure roughly twice a second. **No video is ever recorded, streamed, or uploaded** — that would need a media server and raises real consent/privacy problems for a university deployment neither warranted nor needed here.
+- **3-strike threshold.** A sustained look-away or eyes-closed moment counts as one "strike," debounced so a single long turn isn't ten strikes. On the 3rd strike (and every one after), the browser sends the server only `{studentName, topic, count, timestamp}` plus one small compressed snapshot captured at that instant — never a video.
+- **Instant dashboard alert + optional email.** The instructor's dashboard gets a live "🎥 Proctoring Alerts" card (toast, sound, flash, same as the other live events), the flagged heatmap cell gets a 🎥 badge, and the drill-down drawer shows the snapshot in context. If `RESEND_API_KEY` and `ALERT_TO_EMAIL` are set (see `.env.example`), the instructor also gets a real email — once per exam sitting, not once per strike.
+- **Honest about its limits.** This is head-pose/eye-closure *approximation*, not eye-tracking — lighting, webcam angle, and glasses all affect it. It's framed everywhere (dashboard copy, email body, this README) as a signal to look closer, never a verdict — the same "detected and logged, not proven" honesty as the rest of the integrity features. A student who declines the camera (or has none) simply continues the exam; the instructor sees no webcam signal for that attempt instead of a hard block.
+
+No installation is required for this: the face-detection library loads from a CDN at exam time, and email uses Resend's plain HTTP API via Node's built-in `fetch` — no SDK dependency added to `package.json`. See `.env.example` for the two optional environment variables that turn email alerts on.
+
 ## Why two completely separate panels
 
 Students and instructors are different roles with different data access, so they get different logins, different UIs, and different API permissions — not one screen with a toggle. A student's JWT cannot call any `/api/instructor/*` route, and vice versa (see `server/auth.js`).
@@ -59,12 +70,15 @@ This isn't just manually-clicked-through — the grading engine, role-based acce
 npm test
 ```
 
-45 tests across 4 suites, run on every push via GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
+62 tests across 7 suites, run on every push via GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
 
 - **`tests/grading.test.js`** — unit tests against the real seeded content (`server/grading.js`): correct/wrong quiz scoring, the misconception tag mapped to the *specific* wrong option chosen, keyword-coverage scoring for tasks, confidence clamping, and confirming a pending Q&A never counts toward a topic average.
 - **`tests/auth.test.js`** — login success/failure paths, and `requireRole()` middleware rejecting a wrong-role token before a route handler ever runs.
 - **`tests/api.test.js`** — integration tests via `supertest` against the real Express app: cross-role rejection (an instructor token really can't call `/api/student/*`, and vice versa — this is the acceptance-checklist item, verified, not asserted), input validation returning 400s on malformed bodies, and a full mixed-type submit flow.
 - **`tests/realtime.test.js`** — a real HTTP server on an ephemeral port with real `socket.io-client` connections: a forged token gets rejected at the handshake, `exam:submitted` reaches an open instructor socket, a live quiz pick shows up as `presence:progress` before submission, and `remediation:new` reaches an open student socket.
+- **`tests/similarity.test.js`** — calibrates the word-set Jaccard threshold against real copy-paste vs. independently-worded example answers.
+- **`tests/integrity.test.js`** — drives the real submit flow to verify cross-student similarity flagging, heatmap marking, that flags never leak into a student's own submit response, and integrity-event storage.
+- **`tests/webcam-alert.test.js`** — real socket connections proving a 3rd-strike webcam alert reaches the instructor live, gets stored, marks the heatmap and drill-down, that sub-threshold strikes are ignored, and that an oversized snapshot payload is dropped without losing the strike record.
 
 Two more layers beyond tests:
 - **Input validation** ([server/validation.js](server/validation.js), via `zod`) — every request body is checked against a schema before the route handler runs; a malformed request gets a specific 400, not a 500 or silent bad behavior.

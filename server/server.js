@@ -9,6 +9,7 @@ const { login, verifyToken, requireRole } = require('./auth');
 const { parseJSON, timeLimitFor, topicScoreFor, classAverageFor, gradeAndStore } = require('./grading');
 const { validate, loginSchema, submitSchema, reviewSchema, remediateSchema } = require('./validation');
 const { loginLimiter, submitLimiter } = require('./rate-limit');
+const { sendWebcamAlertEmail } = require('./mailer');
 
 const app = express();
 app.use(express.json());
@@ -74,6 +75,7 @@ app.post('/api/student/exam/:topicKey/submit', submitLimiter, requireRole('stude
   }
 
   activeExams.delete(req.user.sub);
+  clearWebcamEmailFlags(req.user.sub);
   io.to('instructors').emit('presence:clear', { studentId: req.user.sub });
 
   io.to('instructors').emit('exam:submitted', {
@@ -160,6 +162,12 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
     JOIN submissions s ON s.id = f.submission_id OR s.id = f.matched_submission_id
   `).all().forEach((r) => flaggedCells.add(r.user_id + ':' + r.topic_id));
 
+  // Same idea, tracked separately so the dashboard can tell "text/tab
+  // signal" apart from "webcam attention signal" at a glance (⚠ vs 🎥).
+  const webcamFlaggedCells = new Set();
+  db.prepare('SELECT DISTINCT user_id, topic_id FROM webcam_alerts').all()
+    .forEach((r) => webcamFlaggedCells.add(r.user_id + ':' + r.topic_id));
+
   res.json({
     topics: topics.map(t => ({
       key: t.key, name: t.name,
@@ -170,6 +178,7 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
       id: s.id, name: s.display_name,
       scores: Object.fromEntries(topics.map(t => [t.key, cells[s.id][t.id] ?? null])),
       flagged: Object.fromEntries(topics.map(t => [t.key, flaggedCells.has(s.id + ':' + t.id)])),
+      webcamFlagged: Object.fromEntries(topics.map(t => [t.key, webcamFlaggedCells.has(s.id + ':' + t.id)])),
     })),
   });
 });
@@ -242,6 +251,25 @@ app.get('/api/instructor/integrity', requireRole('instructor'), (req, res) => {
   res.json({ events: eventRows, similarity: similarityRows });
 });
 
+// Webcam attention alerts (head turned away / eyes closed, 3+ times in one
+// sitting), each with the single snapshot captured at that strike. This is
+// a browser-side estimate, not proof — reported as a signal, same honesty
+// framing as the tab-switch trail and the similarity flags above.
+app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT wa.id, wa.strike_count, wa.snapshot, wa.created_at,
+      u.display_name AS studentName, t.key AS topicKey, t.name AS topicName
+    FROM webcam_alerts wa
+    JOIN users u ON u.id = wa.user_id
+    JOIN topics t ON t.id = wa.topic_id
+    ORDER BY wa.created_at DESC LIMIT 20
+  `).all();
+  res.json(rows.map(r => ({
+    id: r.id, studentName: r.studentName, topicKey: r.topicKey, topicName: r.topicName,
+    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at,
+  })));
+});
+
 app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
   res.json({
     online: onlineStudents.size,
@@ -277,6 +305,13 @@ app.get('/api/instructor/detail/:studentId/:topicKey', requireRole('instructor')
     otherStudentName: r.otherStudentName, similarity: Math.round(r.similarity * 100), createdAt: r.created_at,
   }));
 
+  const webcamAlerts = db.prepare(`
+    SELECT strike_count, snapshot, created_at FROM webcam_alerts
+    WHERE user_id = ? AND topic_id = ? ORDER BY created_at DESC
+  `).all(studentId, topic.id).map((r) => ({
+    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at,
+  }));
+
   res.json({
     submissions: subs.map(s => ({
       id: s.id, type: s.type, status: s.status, autoScore: s.auto_score,
@@ -290,6 +325,7 @@ app.get('/api/instructor/detail/:studentId/:topicKey', requireRole('instructor')
     })),
     integrityEvents,
     similarityFlags,
+    webcamAlerts,
   });
 });
 
@@ -349,9 +385,19 @@ app.post('/api/instructor/remediate', requireRole('instructor'), validate(remedi
 // ---------- Socket.IO ----------
 // userId -> Set of live socket ids (a student can have >1 tab open)
 const onlineStudents = new Map();
-// userId -> { studentId, studentName, topicKey, topicName, answered, total, quizTrail } while an exam is in progress
+// userId -> { studentId, studentName, topicKey, topicName, answered, total, quizTrail, examRun } while an exam is in progress
 const activeExams = new Map();
 const getQuizCorrectIndex = db.prepare("SELECT correct_index FROM items WHERE id = ? AND type = 'quiz'");
+
+// `${userId}:${topicId}:${examRun}` -> true, once an instructor email has
+// gone out for that sitting. Keeps a long exam with many strikes from
+// spamming the instructor's inbox — the dashboard still logs every strike,
+// email just fires once per exam attempt.
+const webcamAlertEmailed = new Set();
+function clearWebcamEmailFlags(userId) {
+  const prefix = `${userId}:`;
+  [...webcamAlertEmailed].forEach((key) => { if (key.startsWith(prefix)) webcamAlertEmailed.delete(key); });
+}
 
 function broadcastOnline() {
   // Both rooms care: instructors see it as a headcount, students see it as
@@ -382,7 +428,7 @@ io.on('connection', (socket) => {
   broadcastOnline();
 
   socket.on('exam:start', ({ topicKey, topicName, total }) => {
-    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0, quizTrail: [] };
+    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0, quizTrail: [], examRun: Date.now() };
     activeExams.set(userId, state);
     io.to('instructors').emit('presence:progress', state);
   });
@@ -409,6 +455,37 @@ io.on('connection', (socket) => {
     io.to('instructors').emit('presence:progress', state);
   });
 
+  // Webcam attention monitoring: entirely client-side face-landmark
+  // detection (see public/student/webcam-monitor.js) — no video is ever
+  // sent here, only a strike count and, once 3+ strikes are reached, one
+  // small still-frame snapshot. A browser-side estimate, not proof.
+  socket.on('exam:webcamAlert', ({ topicKey, count, snapshot }) => {
+    const state = activeExams.get(userId);
+    if (!state) return;
+    const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(topicKey);
+    if (!topic || !Number.isInteger(count) || count < 3) return;
+    // Cap defensively — a legitimate low-res/low-quality JPEG snapshot is a
+    // few tens of KB as base64; anything past this is dropped, not stored.
+    const safeSnapshot = (typeof snapshot === 'string' && snapshot.length > 0 && snapshot.length <= 300000) ? snapshot : null;
+    const examRun = state.examRun || Date.now();
+
+    db.prepare('INSERT INTO webcam_alerts (user_id, topic_id, exam_run, strike_count, snapshot) VALUES (?, ?, ?, ?, ?)')
+      .run(userId, topic.id, examRun, count, safeSnapshot);
+
+    const payload = {
+      studentId: userId, studentName: name, topicKey: topic.key, topicName: topic.name,
+      count, snapshot: safeSnapshot, ts: Date.now(),
+    };
+    io.to('instructors').emit('integrity:webcamAlert', payload);
+
+    const sessionKey = `${userId}:${topic.id}:${examRun}`;
+    if (!webcamAlertEmailed.has(sessionKey)) {
+      webcamAlertEmailed.add(sessionKey);
+      sendWebcamAlertEmail({ studentName: name, topicName: topic.name, count, ts: payload.ts, snapshotDataUrl: safeSnapshot })
+        .catch((err) => console.error('webcam alert email failed:', err.message));
+    }
+  });
+
   socket.on('disconnect', () => {
     const set = onlineStudents.get(userId);
     if (!set) return;
@@ -416,6 +493,7 @@ io.on('connection', (socket) => {
     if (set.size === 0) {
       onlineStudents.delete(userId);
       activeExams.delete(userId);
+      clearWebcamEmailFlags(userId);
       io.to('instructors').emit('presence:clear', { studentId: userId });
     }
     broadcastOnline();
