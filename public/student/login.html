@@ -8,19 +8,41 @@
 <link rel="stylesheet" href="/shared/styles.css">
 </head>
 <body>
-  <div class="center-screen">
-    <div class="card">
-      <p class="tag">Student panel</p>
-      <h1>Sign in to practice</h1>
-      <form id="loginForm">
-        <label for="username">Username</label>
-        <input id="username" autocomplete="username" required>
-        <label for="password">Password</label>
-        <input id="password" type="password" autocomplete="current-password" required>
-        <button type="submit">Sign in</button>
-        <p class="error" id="err"></p>
-      </form>
-      <p class="hint">Demo account:<br>student1 / Pulse#Student1</p>
+  <div class="portal">
+    <div class="portal-side">
+      <span class="brand-cluster">
+        <span class="brand-mark">MP</span>
+        <span class="brand-text">
+          <span class="brand" style="font-size:1rem;">Mastery Pulse</span>
+          <span class="brand-kicker">Student Exam Console</span>
+        </span>
+      </span>
+      <div>
+        <span class="role-badge student">Student panel</span>
+        <h2>Every question, timed and locked in as you go.</h2>
+        <p>Quiz, task, and short-answer items — one at a time, no going back. Submit and see your score benchmarked against the class instantly.</p>
+        <ul class="portal-features">
+          <li>Live countdown timer, auto-submits at zero</li>
+          <li>Confidence self-rating on every question</li>
+          <li>Instant class-average comparison after you submit</li>
+        </ul>
+      </div>
+      <p class="footnote" style="margin-top:0; border-top:none; padding-top:0;"><a href="/">← Back to Mastery Pulse</a></p>
+    </div>
+    <div class="portal-form">
+      <div class="card">
+        <p class="tag">Student panel</p>
+        <h1>Sign in to practice</h1>
+        <form id="loginForm">
+          <label for="username">Username</label>
+          <input id="username" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="current-password" required>
+          <button type="submit">Sign in</button>
+          <p class="error" id="err"></p>
+        </form>
+        <p class="hint">Demo account:<br>student1 / Pulse#Student1</p>
+      </div>
     </div>
   </div>
   <script>

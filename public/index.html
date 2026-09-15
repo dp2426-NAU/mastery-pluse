@@ -4,17 +4,58 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mastery Pulse</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@700&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/shared/styles.css">
 </head>
 <body>
-  <div class="center-screen">
-    <div class="card" style="max-width:460px; text-align:center;">
-      <h1 style="font-size:1.8rem;">Mastery Pulse</h1>
-      <p style="color:var(--text-muted); margin-bottom:24px;">Real-time adaptive practice with a live class mastery view.</p>
-      <a href="/student/login.html"><button>Student panel</button></a>
-      <a href="/instructor/login.html"><button style="background:var(--surface-2); color:var(--text); border:1px solid var(--line); margin-top:10px;">Instructor panel</button></a>
+  <div class="hero-wrap">
+    <div class="hero-top">
+      <span class="brand-cluster">
+        <span class="brand-mark">MP</span>
+        <span class="brand-text">
+          <span class="brand" style="font-size:1.05rem;">Mastery Pulse</span>
+          <span class="brand-kicker">Real-Time Client&ndash;Server Capstone</span>
+        </span>
+      </span>
+      <span class="conn-badge live" style="margin:0;"><span class="dot"></span>Server responding</span>
     </div>
+
+    <div class="hero">
+      <p class="kicker accent" style="margin-bottom:14px;">Graduate IT &amp; Computer Science</p>
+      <h1>Real-time mastery and academic integrity, live across every seat in the room.</h1>
+      <p class="lede">Students take mixed-format exams — quiz, task, and short-answer — across five graduate topics. The instant one is submitted, the instructor's dashboard updates live: exactly which topics the class is struggling with, which misconceptions are spreading, and whether anything looks off.</p>
+      <div class="topic-tags">
+        <span class="tag-pill">Cybersecurity</span>
+        <span class="tag-pill">Web Technology</span>
+        <span class="tag-pill">Networking</span>
+        <span class="tag-pill">Cloud Computing</span>
+        <span class="tag-pill">Full Stack Development</span>
+      </div>
+    </div>
+
+    <div class="stat-strip">
+      <div class="stat-tile"><div class="num">5</div><div class="label">Live topics</div></div>
+      <div class="stat-tile"><div class="num">3</div><div class="label">Item types, graded differently</div></div>
+      <div class="stat-tile"><div class="num">4</div><div class="label">Exam-integrity signals</div></div>
+      <div class="stat-tile live"><div class="num">&lt;1s</div><div class="label">Dashboard update latency</div></div>
+    </div>
+
+    <div class="role-grid">
+      <a class="role-card student" href="/student/login.html">
+        <span class="role-badge student">Student panel</span>
+        <h2>Take an exam</h2>
+        <p>Quiz, task, and short-answer questions, one at a time — locked in as you go, timed, and benchmarked against the class the moment you submit.</p>
+        <span class="go">Sign in as a student →</span>
+      </a>
+      <a class="role-card instructor" href="/instructor/login.html">
+        <span class="role-badge instructor">Instructor panel</span>
+        <h2>Watch the class live</h2>
+        <p>A live weak-topic heatmap, misconception leaderboard, exam-integrity alerts, and one-click remediation — updating in real time as students work.</p>
+        <span class="go">Sign in as instructor →</span>
+      </a>
+    </div>
+
+    <p class="footnote">Built for &ldquo;Designing a Client&ndash;Server Architecture for Web Applications.&rdquo; Every score, misconception, and alert on this platform comes from live exam activity — no external dataset.</p>
   </div>
 </body>
 </html>

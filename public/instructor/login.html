@@ -6,22 +6,44 @@
 <title>Mastery Pulse — Instructor Login</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/shared/styles.css">
-<style> .tag{ color:var(--warn); } </style>
+<style> .portal-form .tag{ color:var(--gold); } </style>
 </head>
 <body>
-  <div class="center-screen">
-    <div class="card">
-      <p class="tag">Instructor panel</p>
-      <h1>Sign in to the dashboard</h1>
-      <form id="loginForm">
-        <label for="username">Username</label>
-        <input id="username" autocomplete="username" required>
-        <label for="password">Password</label>
-        <input id="password" type="password" autocomplete="current-password" required>
-        <button type="submit">Sign in</button>
-        <p class="error" id="err"></p>
-      </form>
-      <p class="hint">Demo account:<br>prof.demo / MasterClass#2026</p>
+  <div class="portal">
+    <div class="portal-side instructor">
+      <span class="brand-cluster">
+        <span class="brand-mark">MP</span>
+        <span class="brand-text">
+          <span class="brand" style="font-size:1rem;">Mastery Pulse</span>
+          <span class="brand-kicker">Instructor Console</span>
+        </span>
+      </span>
+      <div>
+        <span class="role-badge instructor">Instructor panel</span>
+        <h2>Watch the whole class, live, as they work.</h2>
+        <p>A weak-topic heatmap, misconception leaderboard, exam-integrity alerts, and remediation — updating the instant a student acts, not on refresh.</p>
+        <ul class="portal-features">
+          <li>Live presence &amp; per-question correctness before submission</li>
+          <li>Cross-student similarity and webcam attention alerts</li>
+          <li>One-click remediation with before/after impact tracking</li>
+        </ul>
+      </div>
+      <p class="footnote" style="margin-top:0; border-top:none; padding-top:0;"><a href="/">← Back to Mastery Pulse</a></p>
+    </div>
+    <div class="portal-form">
+      <div class="card">
+        <p class="tag">Instructor panel</p>
+        <h1>Sign in to the dashboard</h1>
+        <form id="loginForm">
+          <label for="username">Username</label>
+          <input id="username" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="current-password" required>
+          <button type="submit">Sign in</button>
+          <p class="error" id="err"></p>
+        </form>
+        <p class="hint">Demo account:<br>prof.demo / MasterClass#2026</p>
+      </div>
     </div>
   </div>
   <script>

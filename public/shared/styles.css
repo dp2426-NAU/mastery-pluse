@@ -2,8 +2,15 @@
   --bg:#0F1420; --surface:#171E2E; --surface-2:#1F293D; --line:#2A3550;
   --text:#E7EAF3; --text-muted:#8B96B3;
   --accent:#5B8CFF; --accent-ink:#08122B;
+  /* Institutional accent — deliberately paired with the navy ground the way
+     a university's own crest colors would be: navy + gold reads as "campus
+     system of record," blue stays reserved for "this is live/real-time." */
+  --gold:#C9A24B; --gold-ink:#241A05;
   --good:#33C58E; --bad:#E2583F; --warn:#F0B429;
-  --radius:12px;
+  --radius:12px; --radius-sm:8px;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:0 8px 24px rgba(0,0,0,.35);
+  --shadow-lg:0 32px 80px -24px rgba(0,0,0,.65);
   --serif:'Source Serif 4', Georgia, serif;
   --sans:'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
   --mono:'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
@@ -18,7 +25,7 @@ body{
 }
 .card{
   background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
-  padding:32px; width:100%; max-width:380px;
+  padding:32px; width:100%; max-width:380px; box-shadow:var(--shadow-md);
 }
 .card h1{ font-family:var(--serif); font-size:1.5rem; margin:0 0 4px; }
 .card .tag{ font-family:var(--mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); margin:0 0 20px; }
@@ -26,33 +33,124 @@ label{ display:block; font-size:.82rem; color:var(--text-muted); margin:14px 0 6
 input{
   width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--text);
   border-radius:8px; padding:10px 12px; font-size:.95rem; font-family:var(--sans);
+  transition:border-color .15s ease;
 }
 input:focus{ outline:2px solid var(--accent); outline-offset:1px; }
 button{
   margin-top:22px; width:100%; background:var(--accent); color:var(--accent-ink); border:none;
   border-radius:8px; padding:12px; font-weight:600; font-size:.95rem; cursor:pointer; font-family:var(--sans);
+  transition:filter .15s ease, transform .1s ease;
 }
 button:hover{ filter:brightness(1.08); }
+button:active{ transform:translateY(1px); }
 .error{ color:var(--bad); font-size:.85rem; margin-top:12px; min-height:1em; }
 .hint{ font-size:.76rem; color:var(--text-muted); margin-top:18px; font-family:var(--mono); line-height:1.6; }
 a{ color:var(--accent); }
 
-.topbar{
-  display:flex; align-items:center; justify-content:space-between; padding:16px 28px;
-  border-bottom:1px solid var(--line); background:var(--surface);
+/* ---- eyebrow / kicker label, reused across the landing page, portals, and dashboard section heads ---- */
+.kicker{
+  font-family:var(--mono); font-size:.7rem; text-transform:uppercase; letter-spacing:.12em; color:var(--text-muted);
 }
-.topbar .brand{ font-family:var(--serif); font-weight:700; font-size:1.1rem; }
+.kicker.accent{ color:var(--accent); }
+.kicker.gold{ color:var(--gold); }
+
+/* ---- brand mark: a small crest, not just a wordmark — the one deliberate
+   "institutional seal" touch carried across every screen ---- */
+.brand-cluster{ display:flex; align-items:center; gap:11px; }
+.brand-mark{
+  width:34px; height:34px; border-radius:50%; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--serif); font-weight:700; font-size:.8rem; letter-spacing:.01em;
+  background:radial-gradient(circle at 32% 28%, #1C2946, var(--bg) 75%);
+  border:1.5px solid var(--gold); color:var(--gold);
+  box-shadow:0 0 0 3px rgba(201,162,75,.12);
+}
+.brand-text{ display:flex; flex-direction:column; line-height:1.25; }
+.brand-text .brand-kicker{ font-family:var(--mono); font-size:.64rem; text-transform:uppercase; letter-spacing:.09em; color:var(--text-muted); }
+
+.topbar{
+  display:flex; align-items:center; justify-content:space-between; padding:15px 28px;
+  border-bottom:1px solid var(--line); background:var(--surface);
+  position:relative; box-shadow:var(--shadow-sm);
+}
+.topbar::after{
+  content:''; position:absolute; left:0; right:0; bottom:-1px; height:1px;
+  background:linear-gradient(90deg, transparent, rgba(91,140,255,.55), rgba(201,162,75,.55), transparent);
+}
+.topbar-right{ display:flex; align-items:center; gap:12px; }
+.topbar .brand{ font-family:var(--serif); font-weight:700; font-size:1.05rem; }
 .topbar .who{ font-family:var(--mono); font-size:.78rem; color:var(--text-muted); }
 .topbar button.logout{
   width:auto; margin:0; padding:7px 14px; background:transparent; border:1px solid var(--line);
   color:var(--text-muted); font-size:.78rem;
 }
 
+/* ---- role identity: blue = student/live, gold = instructor/institutional ---- */
+.role-badge{
+  display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:.68rem;
+  text-transform:uppercase; letter-spacing:.08em; padding:3px 10px; border-radius:999px;
+  border:1px solid var(--line); color:var(--text-muted);
+}
+.role-badge.student{ border-color:rgba(91,140,255,.4); color:var(--accent); }
+.role-badge.instructor{ border-color:rgba(201,162,75,.4); color:var(--gold); }
+
+/* ---- stat strip: landing-page metrics + dashboard status tiles ---- */
+.stat-strip{ display:flex; flex-wrap:wrap; gap:12px; }
+.stat-tile{
+  flex:1 1 140px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-sm);
+  padding:12px 16px; box-shadow:var(--shadow-sm);
+}
+.stat-tile .num{ font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:1.3rem; font-weight:600; color:var(--text); }
+.stat-tile .label{ font-size:.72rem; color:var(--text-muted); margin-top:2px; }
+.stat-tile.live .num{ color:var(--good); }
+
+/* ---- landing page ---- */
+.hero-wrap{ max-width:920px; margin:0 auto; padding:56px 24px 72px; }
+.hero-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:52px; flex-wrap:wrap; gap:14px; }
+.hero h1{ font-family:var(--serif); font-size:clamp(1.9rem, 4.4vw, 2.7rem); line-height:1.16; margin:0 0 18px; text-wrap:balance; max-width:16ch; }
+.hero p.lede{ font-size:1.03rem; color:var(--text-muted); max-width:56ch; line-height:1.65; margin:0 0 26px; }
+.topic-tags{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:40px; }
+.topic-tags .tag-pill{
+  font-family:var(--mono); font-size:.72rem; padding:5px 12px; border-radius:999px; border:1px solid var(--line); color:var(--text-muted);
+}
+.role-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(240px,1fr)); gap:18px; margin:44px 0 0; }
+.role-card{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:26px;
+  box-shadow:var(--shadow-md); text-decoration:none; color:var(--text); display:block;
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.role-card:hover{ transform:translateY(-3px); box-shadow:var(--shadow-lg); }
+.role-card.student{ border-top:3px solid var(--accent); }
+.role-card.instructor{ border-top:3px solid var(--gold); }
+.role-card h2{ font-family:var(--serif); font-size:1.25rem; margin:8px 0 8px; }
+.role-card p{ color:var(--text-muted); font-size:.88rem; line-height:1.55; margin:0 0 18px; }
+.role-card .go{ font-family:var(--mono); font-size:.76rem; text-transform:uppercase; letter-spacing:.06em; }
+.role-card.student .go{ color:var(--accent); }
+.role-card.instructor .go{ color:var(--gold); }
+.footnote{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line); font-size:.8rem; color:var(--text-muted); font-family:var(--mono); line-height:1.6; }
+
+/* ---- login portals: two-column, institutional identity on the left ---- */
+.portal{ min-height:100vh; display:grid; grid-template-columns:1.05fr 1fr; }
+@media (max-width:760px){ .portal{ grid-template-columns:1fr; } .portal-side{ display:none; } }
+.portal-side{
+  background:linear-gradient(165deg, var(--surface) 0%, var(--bg) 100%);
+  border-right:1px solid var(--line);
+  padding:52px 46px; display:flex; flex-direction:column; justify-content:space-between;
+}
+.portal-side .brand-cluster{ margin-bottom:60px; }
+.portal-side h2{ font-family:var(--serif); font-size:1.9rem; line-height:1.22; margin:10px 0 16px; max-width:13ch; text-wrap:balance; }
+.portal-side p{ color:var(--text-muted); font-size:.92rem; line-height:1.6; max-width:36ch; }
+.portal-features{ list-style:none; padding:0; margin:28px 0 0; display:flex; flex-direction:column; gap:13px; }
+.portal-features li{ display:flex; gap:10px; font-size:.86rem; color:var(--text-muted); }
+.portal-features li::before{ content:'—'; color:var(--accent); flex-shrink:0; }
+.portal-side.instructor .portal-features li::before{ color:var(--gold); }
+.portal-form{ display:flex; align-items:center; justify-content:center; padding:24px; }
+
 /* ---- live connection badge ---- */
 .conn-badge{
   display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:.72rem;
   text-transform:uppercase; letter-spacing:.05em; padding:4px 10px; border-radius:999px;
-  border:1px solid var(--line); margin-right:12px; color:var(--text-muted);
+  border:1px solid var(--line); color:var(--text-muted);
 }
 .conn-badge .dot{ width:7px; height:7px; border-radius:50%; background:var(--text-muted); }
 .conn-badge.connecting .dot{ background:var(--warn); animation:pulse 1s infinite; }
@@ -62,7 +160,7 @@ a{ color:var(--accent); }
 .conn-badge.down .dot{ background:var(--bad); animation:pulse .8s infinite; }
 
 .online-ticker{
-  font-family:var(--mono); font-size:.72rem; color:var(--text-muted); margin-right:12px;
+  font-family:var(--mono); font-size:.72rem; color:var(--text-muted);
 }
 
 /* ---- toast stack ---- */
@@ -79,6 +177,12 @@ a{ color:var(--accent); }
 .toast.out{ opacity:0; transform:translateX(16px); }
 .toast.good{ border-left-color:var(--good); }
 .toast.warn{ border-left-color:var(--warn); }
+
+/* Shared by every "this is alive" dot across the app — conn-badge, presence
+   chips, the exam timer's critical state, the landing page's live badge.
+   Previously only defined locally inside dashboard.html, so it silently
+   did nothing anywhere else. */
+@keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
 
 /* ---- flash highlight on live-updated elements ---- */
 @keyframes flash-glow{
