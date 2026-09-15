@@ -9,27 +9,33 @@
 </head>
 <body>
   <div class="hero-wrap">
-    <div class="hero-top">
-      <span class="brand-cluster">
-        <span class="brand-mark">MP</span>
-        <span class="brand-text">
-          <span class="brand" style="font-size:1.05rem;">Mastery Pulse</span>
-          <span class="brand-kicker">Real-Time Client&ndash;Server Capstone</span>
-        </span>
-      </span>
-      <span class="conn-badge live" style="margin:0;"><span class="dot"></span>Server responding</span>
-    </div>
+    <div class="hero-stage">
+      <canvas id="netBg" aria-hidden="true"></canvas>
+      <div class="hero-stage-fade"></div>
+      <div class="hero-content">
+        <div class="hero-top">
+          <span class="brand-cluster">
+            <span class="brand-mark">MP</span>
+            <span class="brand-text">
+              <span class="brand" style="font-size:1.05rem;">Mastery Pulse</span>
+              <span class="brand-kicker">Real-Time Client&ndash;Server Capstone</span>
+            </span>
+          </span>
+          <span class="conn-badge live" style="margin:0;"><span class="dot"></span>Server responding</span>
+        </div>
 
-    <div class="hero">
-      <p class="kicker accent" style="margin-bottom:14px;">Graduate IT &amp; Computer Science</p>
-      <h1>Real-time mastery and academic integrity, live across every seat in the room.</h1>
-      <p class="lede">Students take mixed-format exams — quiz, task, and short-answer — across five graduate topics. The instant one is submitted, the instructor's dashboard updates live: exactly which topics the class is struggling with, which misconceptions are spreading, and whether anything looks off.</p>
-      <div class="topic-tags">
-        <span class="tag-pill">Cybersecurity</span>
-        <span class="tag-pill">Web Technology</span>
-        <span class="tag-pill">Networking</span>
-        <span class="tag-pill">Cloud Computing</span>
-        <span class="tag-pill">Full Stack Development</span>
+        <div class="hero">
+          <p class="kicker accent" style="margin-bottom:14px;">Graduate IT &amp; Computer Science</p>
+          <h1>Real-time mastery and academic integrity, live across every seat in the room.</h1>
+          <p class="lede">Students take mixed-format exams — quiz, task, and short-answer — across five graduate topics. The instant one is submitted, the instructor's dashboard updates live: exactly which topics the class is struggling with, which misconceptions are spreading, and whether anything looks off.</p>
+          <div class="topic-tags">
+            <span class="tag-pill">Cybersecurity</span>
+            <span class="tag-pill">Web Technology</span>
+            <span class="tag-pill">Networking</span>
+            <span class="tag-pill">Cloud Computing</span>
+            <span class="tag-pill">Full Stack Development</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -57,5 +63,7 @@
 
     <p class="footnote">Built for &ldquo;Designing a Client&ndash;Server Architecture for Web Applications.&rdquo; Every score, misconception, and alert on this platform comes from live exam activity — no external dataset.</p>
   </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="/shared/network-bg.js"></script>
 </body>
 </html>
