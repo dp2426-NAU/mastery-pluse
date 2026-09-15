@@ -1,3 +1,10 @@
+// Loads a local .env file into process.env, if one exists (silently does
+// nothing otherwise — Render sets real environment variables directly, and
+// the test suite sets what it needs before ever requiring this file, so
+// this only matters for local dev). Must run before anything below reads
+// process.env.* at module-load time (auth.js's JWT_SECRET, in particular).
+require('dotenv').config();
+
 const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
