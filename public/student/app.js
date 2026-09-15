@@ -105,7 +105,7 @@
     overlay.innerHTML = `
       <div class="consent-card">
         <p class="consent-title">📷 Proctoring notice</p>
-        <p class="consent-body">This exam checks, using your camera, whether you're looking at the screen — as part of your course's academic integrity policy. Detection runs only in your browser; no video is recorded or uploaded. If you're flagged 3+ times, your instructor sees a timestamp, a count, and one still image — nothing else.</p>
+        <p class="consent-body">This exam checks, using your camera, whether you're looking at the screen — as part of your course's academic integrity policy. Detection runs only in your browser; no video is recorded or uploaded. You'll see an on-screen reminder for the 1st and 2nd time you look away — only from the 3rd time on does your instructor get notified, with a timestamp, a count, and one still image. Nothing else is ever shared.</p>
         <div class="consent-actions">
           <button type="button" class="consent-decline">Continue without camera</button>
           <button type="button" class="consent-accept">Enable camera &amp; continue</button>
@@ -125,7 +125,16 @@
     if (!window.MasteryPulseWebcam) { setCamStatus('🎥 Camera monitoring unavailable'); return; }
     setCamStatus('🎥 Starting camera…');
     const result = await window.MasteryPulseWebcam.start((count, snapshot) => {
-      socket.emit('exam:webcamAlert', { topicKey: currentTopicKey, count, snapshot });
+      // Strikes 1-2: a private, on-screen nudge — the student always knows
+      // this is running and gets a chance to self-correct before anyone
+      // else is told. Strike 3+: the instructor is actually notified now,
+      // and the student is told that plainly too — never a silent report.
+      if (count < 3) {
+        showToast(`👀 Attention check ${count}/3 — please keep your eyes on the screen.`, 'warn');
+      } else {
+        showToast(`⚠ Your instructor has been notified — repeated attention alerts (${count}).`, 'warn');
+        socket.emit('exam:webcamAlert', { topicKey: currentTopicKey, count, snapshot });
+      }
     });
     webcamActive = result.ok;
     setCamStatus(result.ok ? '🎥 Camera monitoring on' : '🎥 Camera unavailable — continuing without it');

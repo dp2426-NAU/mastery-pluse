@@ -99,15 +99,23 @@
         lastEventAt = now;
         awayStartedAt = now; // require a fresh sustain period before the next strike
         strikeCount += 1;
-        if (strikeCount >= 3 && onStrike) onStrike(strikeCount, captureSnapshot());
+        // Every strike is reported, not just the 3rd+ — a student should
+        // always know this counter exists and is moving, the same way the
+        // lock-note tells them up front that answers can't be revisited.
+        // Only strike 3+ carries a snapshot, since that's the point the
+        // instructor actually gets told.
+        if (onStrike) onStrike(strikeCount, strikeCount >= 3 ? captureSnapshot() : null);
       }
     } else {
       awayStartedAt = null;
     }
   }
 
-  // cb(count, snapshotDataUrlOrNull) is called every strike from the 3rd
-  // onward — resolves to {ok:true} once running, or {ok:false, reason} if
+  // cb(count, snapshotDataUrlOrNull) is called on EVERY strike, starting at
+  // 1 — snapshot is only non-null from the 3rd strike onward, since that's
+  // the point the instructor is actually notified. The caller decides what
+  // to show the student before then. Resolves to {ok:true} once running, or
+  // {ok:false, reason} if
   // the camera/model couldn't be started (caller should proceed without it).
   async function start(cb) {
     onStrike = cb;
