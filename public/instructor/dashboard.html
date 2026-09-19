@@ -124,7 +124,7 @@
   /* webcam proctoring alerts */
   .cam-panel{ background:var(--surface); border:1px solid var(--bad); border-radius:var(--radius); padding:6px 18px; margin-bottom:28px; }
   .cam-item{
-    display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid var(--line); font-size:.86rem;
+    display:flex; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); font-size:.86rem;
   }
   .cam-item:last-child{ border-bottom:none; }
   .cam-item .thumb{
@@ -180,7 +180,7 @@
 
     <p class="kicker" style="color:var(--bad); margin:30px 0 6px;">Camera-based signal</p>
     <p class="section-title" style="margin-top:0;">🎥 Proctoring Alerts</p>
-    <p class="section-sub">Client-side face detection (head turn / eyes closed) flags a student after 3+ moments looking away from the screen — a browser-side estimate, not proof, with a single snapshot for context. No video is ever recorded or streamed.</p>
+    <p class="section-sub">Client-side face detection (head turn / eyes closed) pauses a student's exam after 3+ moments looking away from the screen, with a single snapshot for context — a browser-side estimate, not proof. Their exam stays paused, timer frozen, until you approve it below. No video is ever recorded or streamed. If they're no longer waiting, approving just closes out the record.</p>
     <div class="cam-panel" id="camPanel"></div>
 
     <p class="section-title" style="margin-top:30px;">Pending Q&amp;A review</p>

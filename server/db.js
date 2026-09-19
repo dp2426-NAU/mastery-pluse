@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS webcam_alerts (
   exam_run INTEGER NOT NULL,
   strike_count INTEGER NOT NULL,
   snapshot TEXT, -- base64 JPEG data URL, may be null if the student declined the snapshot/camera
+  resolved INTEGER NOT NULL DEFAULT 0, -- 1 once an instructor has approved the student to resume
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
@@ -110,5 +111,6 @@ function ensureColumn(table, column, ddl) {
 }
 ensureColumn('submissions', 'confidence', 'confidence INTEGER');
 ensureColumn('remediations', 'before_avg', 'before_avg REAL');
+ensureColumn('webcam_alerts', 'resolved', 'resolved INTEGER NOT NULL DEFAULT 0');
 
 module.exports = db;

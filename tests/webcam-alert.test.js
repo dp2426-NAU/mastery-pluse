@@ -116,3 +116,78 @@ test('an oversized snapshot payload is dropped, but the strike is still recorded
     studSocket.emit('exam:webcamAlert', { topicKey: 'networking', count: 4, snapshot: hugeSnapshot });
   });
 }, 10000);
+
+describe('exam pause / instructor approval', () => {
+  test('a 3rd-strike alert pauses the exam on the student\'s own socket', (done) => {
+    const instrSocket = connect(instructorToken);
+    const studSocket = connect(studentToken);
+
+    Promise.all([
+      new Promise((r) => instrSocket.on('connect', r)),
+      new Promise((r) => studSocket.on('connect', r)),
+    ]).then(() => {
+      studSocket.on('exam:paused', (payload) => {
+        expect(payload.topicKey).toBe('full-stack');
+        expect(typeof payload.reason).toBe('string');
+        expect(payload.reason.length).toBeGreaterThan(0);
+        instrSocket.close();
+        studSocket.close();
+        done();
+      });
+      studSocket.emit('exam:start', { topicKey: 'full-stack', topicName: 'Full Stack Development', total: 5 });
+      studSocket.emit('exam:webcamAlert', { topicKey: 'full-stack', count: 3, snapshot: TINY_SNAPSHOT });
+    });
+  }, 10000);
+
+  test('an instructor approving the alert resumes that exact student live and marks it resolved', (done) => {
+    const instrSocket = connect(instructorToken);
+    const studSocket = connect(studentToken);
+    let alertId;
+
+    Promise.all([
+      new Promise((r) => instrSocket.on('connect', r)),
+      new Promise((r) => studSocket.on('connect', r)),
+    ]).then(() => {
+      instrSocket.on('integrity:webcamAlert', async (payload) => {
+        alertId = payload.alertId;
+        expect(alertId).toBeDefined();
+        const res = await request(app).post(`/api/instructor/webcam-alerts/${alertId}/approve`).set('Authorization', 'Bearer ' + instructorToken);
+        expect(res.body.resumed).toBe(true);
+      });
+      studSocket.on('exam:resumed', async (payload) => {
+        expect(payload.topicKey).toBe('cybersecurity');
+        const rows = await request(app).get('/api/instructor/webcam-alerts').set('Authorization', 'Bearer ' + instructorToken);
+        const row = rows.body.find((r) => r.id === alertId);
+        expect(row.resolved).toBe(true);
+        instrSocket.close();
+        studSocket.close();
+        done();
+      });
+      studSocket.emit('exam:start', { topicKey: 'cybersecurity', topicName: 'Cybersecurity', total: 5 });
+      studSocket.emit('exam:webcamAlert', { topicKey: 'cybersecurity', count: 3, snapshot: TINY_SNAPSHOT });
+    });
+  }, 10000);
+
+  test('approving an alert after the student has disconnected resolves it without claiming to resume anything', (done) => {
+    const instrSocket = connect(instructorToken);
+    const studSocket = connect(studentToken);
+
+    Promise.all([
+      new Promise((r) => instrSocket.on('connect', r)),
+      new Promise((r) => studSocket.on('connect', r)),
+    ]).then(() => {
+      instrSocket.on('integrity:webcamAlert', async (payload) => {
+        studSocket.close();
+        setTimeout(async () => {
+          const res = await request(app).post(`/api/instructor/webcam-alerts/${payload.alertId}/approve`).set('Authorization', 'Bearer ' + instructorToken);
+          expect(res.body.ok).toBe(true);
+          expect(res.body.resumed).toBe(false);
+          instrSocket.close();
+          done();
+        }, 200);
+      });
+      studSocket.emit('exam:start', { topicKey: 'web-technology', topicName: 'Web Technology', total: 5 });
+      studSocket.emit('exam:webcamAlert', { topicKey: 'web-technology', count: 3, snapshot: TINY_SNAPSHOT });
+    });
+  }, 10000);
+});

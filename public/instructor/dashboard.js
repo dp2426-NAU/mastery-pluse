@@ -280,12 +280,25 @@
     el.innerHTML = rows.map((r) => `
       <div class="cam-item">
         ${r.snapshot ? `<img class="thumb" src="${r.snapshot}" alt="Snapshot at flagged moment">` : '<div class="thumb"></div>'}
-        <div>
+        <div style="flex:1;">
           <div><strong>${r.studentName}</strong> — ${r.topicName}</div>
           <div class="cam-meta">${r.count} attention alert${r.count === 1 ? '' : 's'} · ${timeLabel(r.createdAt + 'Z')}</div>
         </div>
+        ${r.resolved
+          ? '<span class="tag" style="color:var(--good); border-color:rgba(51,197,142,.4); flex-shrink:0;">✓ Approved</span>'
+          : `<button class="approve-btn" data-id="${r.id}" style="width:auto; margin:0; padding:7px 12px; font-size:.78rem; flex-shrink:0;">Approve &amp; resume</button>`}
       </div>
     `).join('');
+    el.querySelectorAll('.approve-btn').forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = 'Approving…';
+        const res = await fetch(`/api/instructor/webcam-alerts/${btn.dataset.id}/approve`, { method: 'POST', headers: H });
+        const data = await res.json();
+        showToast(data.resumed ? 'Exam resumed — the student can continue now.' : 'Marked approved (student is no longer connected to that exam).', 'good');
+        loadWebcamAlerts();
+      };
+    });
   }
 
   // ---- live presence: students currently mid-exam, before they've submitted ----
@@ -341,12 +354,18 @@
   });
 
   socket.on('integrity:webcamAlert', (payload) => {
-    showToast(`🎥 ${payload.studentName} flagged ${payload.count}× — looking away during ${payload.topicName}`, 'warn');
-    pushFeedItem(`<span>🎥 <strong>${payload.studentName}</strong> flagged ${payload.count}× for looking away — ${payload.topicName}</span><span class="time">${timeLabel(payload.ts)}</span>`);
+    showToast(`🎥 ${payload.studentName}'s exam is paused — flagged ${payload.count}× during ${payload.topicName}. Review and approve to let them continue.`, 'warn');
+    pushFeedItem(`<span>🎥 <strong>${payload.studentName}</strong>'s exam paused — flagged ${payload.count}× for looking away, ${payload.topicName}</span><span class="time">${timeLabel(payload.ts)}</span>`);
     playBeep(520, 0.2);
     flashEventBar('var(--bad)');
     loadWebcamAlerts();
     loadHeatmap();
+  });
+
+  // Fires for every open instructor dashboard, not just whichever one
+  // clicked approve — so two instructors watching the same class stay in sync.
+  socket.on('integrity:webcamAlertResolved', () => {
+    loadWebcamAlerts();
   });
 
   socket.on('qa:reviewed', (payload) => {

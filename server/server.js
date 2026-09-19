@@ -264,7 +264,7 @@ app.get('/api/instructor/integrity', requireRole('instructor'), (req, res) => {
 // framing as the tab-switch trail and the similarity flags above.
 app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) => {
   const rows = db.prepare(`
-    SELECT wa.id, wa.strike_count, wa.snapshot, wa.created_at,
+    SELECT wa.id, wa.strike_count, wa.snapshot, wa.created_at, wa.resolved,
       u.display_name AS studentName, t.key AS topicKey, t.name AS topicName
     FROM webcam_alerts wa
     JOIN users u ON u.id = wa.user_id
@@ -273,8 +273,35 @@ app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) =
   `).all();
   res.json(rows.map(r => ({
     id: r.id, studentName: r.studentName, topicKey: r.topicKey, topicName: r.topicName,
-    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at,
+    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at, resolved: !!r.resolved,
   })));
+});
+
+// The exam this alert paused stays paused until an instructor approves it
+// here — a human makes the actual call, not the heuristic that flagged it.
+// Marks the alert resolved either way; if the student is still connected
+// and genuinely still paused on this exact topic, also resumes them live.
+app.post('/api/instructor/webcam-alerts/:id/approve', requireRole('instructor'), (req, res) => {
+  const alertId = Number(req.params.id);
+  const alert = db.prepare(`
+    SELECT wa.id, wa.user_id, wa.resolved, t.key AS topicKey, u.display_name AS studentName
+    FROM webcam_alerts wa JOIN topics t ON t.id = wa.topic_id JOIN users u ON u.id = wa.user_id
+    WHERE wa.id = ?
+  `).get(alertId);
+  if (!alert) return res.status(404).json({ error: 'Alert not found.' });
+
+  db.prepare('UPDATE webcam_alerts SET resolved = 1 WHERE id = ?').run(alertId);
+
+  const state = activeExams.get(alert.user_id);
+  let resumed = false;
+  if (state && state.paused && state.topicKey === alert.topicKey) {
+    state.paused = false;
+    resumed = true;
+    io.to('user:' + alert.user_id).emit('exam:resumed', { topicKey: alert.topicKey });
+  }
+  io.to('instructors').emit('integrity:webcamAlertResolved', { alertId, studentId: alert.user_id, resumed });
+
+  res.json({ ok: true, resumed });
 });
 
 app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
@@ -432,10 +459,14 @@ io.on('connection', (socket) => {
   // ---- student presence: who's connected, and what they're mid-way through ----
   if (!onlineStudents.has(userId)) onlineStudents.set(userId, new Set());
   onlineStudents.get(userId).add(socket.id);
+  // A private room for exactly this student — used to resume a paused exam
+  // on whichever tab is actually running it, without broadcasting to every
+  // student.
+  socket.join('user:' + userId);
   broadcastOnline();
 
   socket.on('exam:start', ({ topicKey, topicName, total }) => {
-    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0, quizTrail: [], examRun: Date.now() };
+    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0, quizTrail: [], examRun: Date.now(), paused: false };
     activeExams.set(userId, state);
     io.to('instructors').emit('presence:progress', state);
   });
@@ -466,6 +497,10 @@ io.on('connection', (socket) => {
   // detection (see public/student/webcam-monitor.js) — no video is ever
   // sent here, only a strike count and, once 3+ strikes are reached, one
   // small still-frame snapshot. A browser-side estimate, not proof.
+  //
+  // The 3rd strike (and any further one, until an instructor approves)
+  // also pauses the exam on the student's end — a human decision gates
+  // resuming, not the heuristic itself.
   socket.on('exam:webcamAlert', ({ topicKey, count, snapshot }) => {
     const state = activeExams.get(userId);
     if (!state) return;
@@ -476,10 +511,17 @@ io.on('connection', (socket) => {
     const safeSnapshot = (typeof snapshot === 'string' && snapshot.length > 0 && snapshot.length <= 300000) ? snapshot : null;
     const examRun = state.examRun || Date.now();
 
-    db.prepare('INSERT INTO webcam_alerts (user_id, topic_id, exam_run, strike_count, snapshot) VALUES (?, ?, ?, ?, ?)')
+    const inserted = db.prepare('INSERT INTO webcam_alerts (user_id, topic_id, exam_run, strike_count, snapshot) VALUES (?, ?, ?, ?, ?)')
       .run(userId, topic.id, examRun, count, safeSnapshot);
 
+    state.paused = true;
+    io.to('user:' + userId).emit('exam:paused', {
+      topicKey: topic.key,
+      reason: 'A webcam attention check found you looking away 3+ times. Your instructor needs to approve before you can continue.',
+    });
+
     const payload = {
+      alertId: inserted.lastInsertRowid,
       studentId: userId, studentName: name, topicKey: topic.key, topicName: topic.name,
       count, snapshot: safeSnapshot, ts: Date.now(),
     };

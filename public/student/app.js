@@ -105,7 +105,7 @@
     overlay.innerHTML = `
       <div class="consent-card">
         <p class="consent-title">📷 Proctoring notice</p>
-        <p class="consent-body">This exam checks, using your camera, whether you're looking at the screen — as part of your course's academic integrity policy. Detection runs only in your browser; no video is recorded or uploaded. You'll see an on-screen reminder for the 1st and 2nd time you look away — only from the 3rd time on does your instructor get notified, with a timestamp, a count, and one still image. Nothing else is ever shared.</p>
+        <p class="consent-body">This exam checks, using your camera, whether you're looking at the screen — as part of your course's academic integrity policy. Detection runs only in your browser; no video is recorded or uploaded. You'll see an on-screen reminder for the 1st and 2nd time you look away. On the 3rd, your exam pauses — timer frozen — and your instructor gets a timestamp, a count, and one still image to review. You continue once they approve it.</p>
         <div class="consent-actions">
           <button type="button" class="consent-decline">Continue without camera</button>
           <button type="button" class="consent-accept">Enable camera &amp; continue</button>
@@ -132,7 +132,7 @@
       if (count < 3) {
         showToast(`👀 Attention check ${count}/3 — please keep your eyes on the screen.`, 'warn');
       } else {
-        showToast(`⚠ Your instructor has been notified — repeated attention alerts (${count}).`, 'warn');
+        showToast(`⚠ Pausing your exam — your instructor has been notified (${count} alerts).`, 'warn');
         socket.emit('exam:webcamAlert', { topicKey: currentTopicKey, count, snapshot });
       }
     });
@@ -144,6 +144,46 @@
     if (webcamActive && window.MasteryPulseWebcam) window.MasteryPulseWebcam.stop();
     webcamActive = false;
   }
+
+  // ---- exam pause: a 3rd webcam strike halts the exam until an
+  // instructor explicitly approves resuming — a human makes the actual
+  // call, not the heuristic that flagged it. ----
+  let examPausedOverlay = null;
+  function showExamPausedOverlay(reason) {
+    if (examPausedOverlay) return;
+    pauseExamTimer();
+    stopWebcamMonitor();
+    const nextBtn = document.getElementById('nextBtn');
+    if (nextBtn) nextBtn.disabled = true;
+    examPausedOverlay = document.createElement('div');
+    examPausedOverlay.className = 'consent-overlay';
+    examPausedOverlay.innerHTML = `
+      <div class="consent-card">
+        <p class="consent-title">⏸ Exam paused</p>
+        <p class="consent-body">${reason || 'Waiting for your instructor to review and approve before you can continue.'}</p>
+        <p class="consent-body" style="margin-bottom:0;">Your timer is frozen — you won't lose time while you wait.</p>
+      </div>`;
+    document.body.appendChild(examPausedOverlay);
+  }
+  function hideExamPausedOverlay() {
+    if (!examPausedOverlay) return;
+    examPausedOverlay.remove();
+    examPausedOverlay = null;
+    const nextBtn = document.getElementById('nextBtn');
+    if (nextBtn) nextBtn.disabled = false;
+    resumeExamTimerAfterPause();
+    showToast('▶ Your instructor approved you to continue.', 'good');
+    // Fresh monitoring for the rest of the exam — a new pause needs 3 new strikes.
+    startWebcamMonitor();
+  }
+  socket.on('exam:paused', ({ topicKey, reason }) => {
+    if (topicKey !== currentTopicKey) return;
+    showExamPausedOverlay(reason);
+  });
+  socket.on('exam:resumed', ({ topicKey }) => {
+    if (topicKey !== currentTopicKey) return;
+    hideExamPausedOverlay();
+  });
 
   function renderItemInput(item, container) {
     const card = document.createElement('div');
@@ -198,26 +238,36 @@
   }
 
   let timerInterval = null;
+  let timerRemaining = 0;
+  let timerOnExpire = null;
   function clearExamTimer() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   }
-
+  function renderExamTimer() {
+    const el = document.getElementById('examTimer');
+    if (!el) return;
+    const m = Math.floor(timerRemaining / 60), s = timerRemaining % 60;
+    el.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    el.classList.toggle('warn', timerRemaining <= 60 && timerRemaining > 20);
+    el.classList.toggle('critical', timerRemaining <= 20);
+  }
   function startExamTimer(seconds, onExpire) {
     clearExamTimer();
-    const el = document.getElementById('examTimer');
-    let remaining = seconds;
-    const render = () => {
-      const m = Math.floor(remaining / 60), s = remaining % 60;
-      el.textContent = `${m}:${String(s).padStart(2, '0')}`;
-      el.classList.toggle('warn', remaining <= 60 && remaining > 20);
-      el.classList.toggle('critical', remaining <= 20);
-    };
-    render();
+    timerRemaining = seconds;
+    timerOnExpire = onExpire;
+    renderExamTimer();
     timerInterval = setInterval(() => {
-      remaining -= 1;
-      if (remaining <= 0) { clearExamTimer(); el.textContent = '0:00'; onExpire(); return; }
-      render();
+      timerRemaining -= 1;
+      if (timerRemaining <= 0) { clearExamTimer(); timerRemaining = 0; renderExamTimer(); timerOnExpire(); return; }
+      renderExamTimer();
     }, 1000);
+  }
+  // Freezes the countdown at whatever's left — used while an exam is
+  // paused for instructor approval, so a genuinely innocent student (bad
+  // lighting, glasses glare) doesn't lose real exam time waiting.
+  function pauseExamTimer() { clearExamTimer(); }
+  function resumeExamTimerAfterPause() {
+    if (timerOnExpire) startExamTimer(timerRemaining, timerOnExpire);
   }
 
   // One question at a time, no way back — once you move on, that answer is
@@ -225,6 +275,7 @@
   // "answered so far" a meaningful, honest number for the live presence chip.
   function buildExamView(data, submitFn, topicKey) {
     currentTopicKey = topicKey;
+    if (examPausedOverlay) { examPausedOverlay.remove(); examPausedOverlay = null; }
     bannerArea.style.display = 'none';
     view.innerHTML = `
       <div class="exam-head">
