@@ -6,6 +6,8 @@ A real-time exam platform for a graduate IT/CS course, covering **Cybersecurity,
 
 Built for the course topic **"Designing a Client-Server Architecture for Web Applications."**
 
+📖 **[Full technical documentation](docs/ARCHITECTURE.md)** — system architecture diagram, the complete database schema, the full REST + Socket.IO API reference, a step-by-step data-flow walkthrough, and the design decisions behind it. This README is the quick-start and feature tour; that document is the deep dive.
+
 ## Exam integrity
 
 Three real, honest features — no fake "AI-detector," since those (Turnitin, GPTZero, etc.) are unreliable paid services that produce real false accusations against genuine student writing:
@@ -162,3 +164,7 @@ mastery-pulse/
 - **Misconception-driven lecture notes**: auto-generate a short "what to re-teach" summary per topic from the aggregated misconception tags.
 - **Exam versions / retakes**: allow a student to retake a topic exam and show improvement over time instead of only the latest score.
 - **Session replay**: store exam submissions on a timeline so you can show, in your final report, how class-wide scores changed after a remediation was sent.
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and build on for your own coursework or projects.
