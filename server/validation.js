@@ -24,6 +24,9 @@ const integrityEventSchema = z.object({
 const submitSchema = z.object({
   responses: z.array(responseItemSchema).min(1, 'Submit at least one answer.'),
   integrityEvents: z.array(integrityEventSchema).max(200).optional(),
+  // Set by the client when a 3rd webcam strike force-ends the exam — the
+  // server forces every submission in this attempt to a 0% hard fail.
+  forcedFail: z.boolean().optional(),
 });
 
 const reviewSchema = z.object({

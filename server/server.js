@@ -69,12 +69,24 @@ app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
 app.post('/api/student/exam/:topicKey/submit', submitLimiter, requireRole('student'), validate(submitSchema), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
-  const { responses, integrityEvents } = req.body;
+  const { responses, integrityEvents, forcedFail } = req.body;
 
   const results = gradeAndStore(req.user.sub, topic.id, responses);
+
+  // A 3rd webcam strike ends the exam immediately as a hard fail — not a
+  // pause, not a review queue. Every submission from THIS exam attempt is
+  // forced to 0% and marked graded (never left "pending review", so it
+  // doesn't linger in the Q&A queue). What was actually answered, and
+  // whether it was individually correct, is still preserved underneath —
+  // visible in the instructor's drill-down — this only forces the score.
+  if (forcedFail) {
+    db.prepare("UPDATE submissions SET auto_score = 0, status = 'graded' WHERE user_id = ? AND topic_id = ? AND exam_run = ?")
+      .run(req.user.sub, topic.id, results.examRun);
+  }
+
   const topicScore = topicScoreFor(req.user.sub, topic.id);
   const classAverage = classAverageFor(topic.id);
-  const pendingQA = results.filter(r => r.type === 'qa').length;
+  const pendingQA = forcedFail ? 0 : results.filter(r => r.type === 'qa').length;
 
   if (integrityEvents && integrityEvents.length) {
     db.prepare('INSERT INTO exam_integrity (user_id, topic_id, exam_run, events) VALUES (?, ?, ?, ?)')
@@ -90,6 +102,7 @@ app.post('/api/student/exam/:topicKey/submit', submitLimiter, requireRole('stude
     topicKey: topic.key, topicName: topic.name,
     score: topicScore, pendingQA, ts: Date.now(),
     integrityFlags: integrityEvents ? integrityEvents.length : 0,
+    forcedFail: !!forcedFail,
   });
 
   results.similarityFlags.forEach((flag) => {
@@ -259,12 +272,13 @@ app.get('/api/instructor/integrity', requireRole('instructor'), (req, res) => {
 });
 
 // Webcam attention alerts (head turned away / eyes closed, 3+ times in one
-// sitting), each with the single snapshot captured at that strike. This is
-// a browser-side estimate, not proof — reported as a signal, same honesty
-// framing as the tab-switch trail and the similarity flags above.
+// sitting) — each one IS the reason that exam attempt ended: the 3rd
+// strike fails the exam immediately (see exam:webcamAlert below), so
+// there's nothing left to approve here, just a record with the single
+// snapshot captured at that strike for the instructor to review.
 app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) => {
   const rows = db.prepare(`
-    SELECT wa.id, wa.strike_count, wa.snapshot, wa.created_at, wa.resolved,
+    SELECT wa.id, wa.strike_count, wa.snapshot, wa.created_at,
       u.display_name AS studentName, t.key AS topicKey, t.name AS topicName
     FROM webcam_alerts wa
     JOIN users u ON u.id = wa.user_id
@@ -273,35 +287,8 @@ app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) =
   `).all();
   res.json(rows.map(r => ({
     id: r.id, studentName: r.studentName, topicKey: r.topicKey, topicName: r.topicName,
-    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at, resolved: !!r.resolved,
+    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at,
   })));
-});
-
-// The exam this alert paused stays paused until an instructor approves it
-// here — a human makes the actual call, not the heuristic that flagged it.
-// Marks the alert resolved either way; if the student is still connected
-// and genuinely still paused on this exact topic, also resumes them live.
-app.post('/api/instructor/webcam-alerts/:id/approve', requireRole('instructor'), (req, res) => {
-  const alertId = Number(req.params.id);
-  const alert = db.prepare(`
-    SELECT wa.id, wa.user_id, wa.resolved, t.key AS topicKey, u.display_name AS studentName
-    FROM webcam_alerts wa JOIN topics t ON t.id = wa.topic_id JOIN users u ON u.id = wa.user_id
-    WHERE wa.id = ?
-  `).get(alertId);
-  if (!alert) return res.status(404).json({ error: 'Alert not found.' });
-
-  db.prepare('UPDATE webcam_alerts SET resolved = 1 WHERE id = ?').run(alertId);
-
-  const state = activeExams.get(alert.user_id);
-  let resumed = false;
-  if (state && state.paused && state.topicKey === alert.topicKey) {
-    state.paused = false;
-    resumed = true;
-    io.to('user:' + alert.user_id).emit('exam:resumed', { topicKey: alert.topicKey });
-  }
-  io.to('instructors').emit('integrity:webcamAlertResolved', { alertId, studentId: alert.user_id, resumed });
-
-  res.json({ ok: true, resumed });
 });
 
 app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
@@ -459,14 +446,10 @@ io.on('connection', (socket) => {
   // ---- student presence: who's connected, and what they're mid-way through ----
   if (!onlineStudents.has(userId)) onlineStudents.set(userId, new Set());
   onlineStudents.get(userId).add(socket.id);
-  // A private room for exactly this student — used to resume a paused exam
-  // on whichever tab is actually running it, without broadcasting to every
-  // student.
-  socket.join('user:' + userId);
   broadcastOnline();
 
   socket.on('exam:start', ({ topicKey, topicName, total }) => {
-    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0, quizTrail: [], examRun: Date.now(), paused: false };
+    const state = { studentId: userId, studentName: name, topicKey, topicName, answered: 0, total: total || 0, quizTrail: [], examRun: Date.now() };
     activeExams.set(userId, state);
     io.to('instructors').emit('presence:progress', state);
   });
@@ -498,9 +481,10 @@ io.on('connection', (socket) => {
   // sent here, only a strike count and, once 3+ strikes are reached, one
   // small still-frame snapshot. A browser-side estimate, not proof.
   //
-  // The 3rd strike (and any further one, until an instructor approves)
-  // also pauses the exam on the student's end — a human decision gates
-  // resuming, not the heuristic itself.
+  // The 3rd strike ends the exam immediately — the student's own client
+  // force-submits it as a hard fail right after emitting this (see
+  // startWebcamMonitor in public/student/app.js). This handler's only job
+  // is recording the strike and telling the instructor it happened.
   socket.on('exam:webcamAlert', ({ topicKey, count, snapshot }) => {
     const state = activeExams.get(userId);
     if (!state) return;
@@ -513,12 +497,6 @@ io.on('connection', (socket) => {
 
     const inserted = db.prepare('INSERT INTO webcam_alerts (user_id, topic_id, exam_run, strike_count, snapshot) VALUES (?, ?, ?, ?, ?)')
       .run(userId, topic.id, examRun, count, safeSnapshot);
-
-    state.paused = true;
-    io.to('user:' + userId).emit('exam:paused', {
-      topicKey: topic.key,
-      reason: 'A webcam attention check found you looking away 3+ times. Your instructor needs to approve before you can continue.',
-    });
 
     const payload = {
       alertId: inserted.lastInsertRowid,

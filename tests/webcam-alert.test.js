@@ -117,77 +117,57 @@ test('an oversized snapshot payload is dropped, but the strike is still recorded
   });
 }, 10000);
 
-describe('exam pause / instructor approval', () => {
-  test('a 3rd-strike alert pauses the exam on the student\'s own socket', (done) => {
-    const instrSocket = connect(instructorToken);
-    const studSocket = connect(studentToken);
+describe('forcedFail submit — the 3rd strike ends the exam as a hard fail', () => {
+  function submitForced(token, topicKey, extraQaText) {
+    return async () => {
+      const examRes = await request(app).get('/api/student/exam/' + topicKey).set('Authorization', 'Bearer ' + token);
+      const responses = examRes.body.items.map((it) => it.type === 'quiz'
+        ? { itemId: it.id, type: 'quiz', selectedIndex: 0, confidence: 3 } // may well be correct
+        : { itemId: it.id, type: it.type, text: extraQaText || 'a normal response', confidence: 3 });
+      return request(app).post(`/api/student/exam/${topicKey}/submit`).set('Authorization', 'Bearer ' + token)
+        .send({ responses, forcedFail: true });
+    };
+  }
 
-    Promise.all([
-      new Promise((r) => instrSocket.on('connect', r)),
-      new Promise((r) => studSocket.on('connect', r)),
-    ]).then(() => {
-      studSocket.on('exam:paused', (payload) => {
-        expect(payload.topicKey).toBe('full-stack');
-        expect(typeof payload.reason).toBe('string');
-        expect(payload.reason.length).toBeGreaterThan(0);
+  test('every submission from a forcedFail attempt is scored 0% and marked graded, even correct quiz answers', async () => {
+    const res = await submitForced(studentToken, 'full-stack')();
+    expect(res.status).toBe(200);
+    expect(res.body.topicScore).toBe(0);
+    expect(res.body.results.every((r) => r.type !== 'quiz' || r.correct !== undefined)).toBe(true); // grading still ran normally underneath
+
+    const heatmap = await request(app).get('/api/instructor/heatmap').set('Authorization', 'Bearer ' + instructorToken);
+    const student = heatmap.body.students.find((s) => s.name === 'Wei Zhang');
+    expect(student.scores['full-stack']).toBe(0);
+
+    // A Q&A item in this exam should be forced straight to graded/0, never
+    // left sitting in the pending-review queue.
+    const pending = await request(app).get('/api/instructor/pending-qa').set('Authorization', 'Bearer ' + instructorToken);
+    expect(pending.body.some((p) => p.studentName === 'Wei Zhang' && p.topicName === 'Full Stack Development')).toBe(false);
+  });
+
+  test('the live exam:submitted broadcast marks it forcedFail so the dashboard can render it as a failure, not a normal score', (done) => {
+    const instrSocket = connect(instructorToken);
+    instrSocket.on('connect', async () => {
+      instrSocket.on('exam:submitted', (payload) => {
+        expect(payload.topicKey).toBe('networking');
+        expect(payload.forcedFail).toBe(true);
+        expect(payload.score).toBe(0);
         instrSocket.close();
-        studSocket.close();
         done();
       });
-      studSocket.emit('exam:start', { topicKey: 'full-stack', topicName: 'Full Stack Development', total: 5 });
-      studSocket.emit('exam:webcamAlert', { topicKey: 'full-stack', count: 3, snapshot: TINY_SNAPSHOT });
+      await submitForced(studentToken, 'networking')();
     });
   }, 10000);
 
-  test('an instructor approving the alert resumes that exact student live and marks it resolved', (done) => {
-    const instrSocket = connect(instructorToken);
-    const studSocket = connect(studentToken);
-    let alertId;
-
-    Promise.all([
-      new Promise((r) => instrSocket.on('connect', r)),
-      new Promise((r) => studSocket.on('connect', r)),
-    ]).then(() => {
-      instrSocket.on('integrity:webcamAlert', async (payload) => {
-        alertId = payload.alertId;
-        expect(alertId).toBeDefined();
-        const res = await request(app).post(`/api/instructor/webcam-alerts/${alertId}/approve`).set('Authorization', 'Bearer ' + instructorToken);
-        expect(res.body.resumed).toBe(true);
-      });
-      studSocket.on('exam:resumed', async (payload) => {
-        expect(payload.topicKey).toBe('cybersecurity');
-        const rows = await request(app).get('/api/instructor/webcam-alerts').set('Authorization', 'Bearer ' + instructorToken);
-        const row = rows.body.find((r) => r.id === alertId);
-        expect(row.resolved).toBe(true);
-        instrSocket.close();
-        studSocket.close();
-        done();
-      });
-      studSocket.emit('exam:start', { topicKey: 'cybersecurity', topicName: 'Cybersecurity', total: 5 });
-      studSocket.emit('exam:webcamAlert', { topicKey: 'cybersecurity', count: 3, snapshot: TINY_SNAPSHOT });
-    });
-  }, 10000);
-
-  test('approving an alert after the student has disconnected resolves it without claiming to resume anything', (done) => {
-    const instrSocket = connect(instructorToken);
-    const studSocket = connect(studentToken);
-
-    Promise.all([
-      new Promise((r) => instrSocket.on('connect', r)),
-      new Promise((r) => studSocket.on('connect', r)),
-    ]).then(() => {
-      instrSocket.on('integrity:webcamAlert', async (payload) => {
-        studSocket.close();
-        setTimeout(async () => {
-          const res = await request(app).post(`/api/instructor/webcam-alerts/${payload.alertId}/approve`).set('Authorization', 'Bearer ' + instructorToken);
-          expect(res.body.ok).toBe(true);
-          expect(res.body.resumed).toBe(false);
-          instrSocket.close();
-          done();
-        }, 200);
-      });
-      studSocket.emit('exam:start', { topicKey: 'web-technology', topicName: 'Web Technology', total: 5 });
-      studSocket.emit('exam:webcamAlert', { topicKey: 'web-technology', count: 3, snapshot: TINY_SNAPSHOT });
-    });
-  }, 10000);
+  test('a normal submit (no forcedFail) is unaffected and keeps real per-item scores', async () => {
+    const examRes = await request(app).get('/api/student/exam/cloud-computing').set('Authorization', 'Bearer ' + studentToken);
+    const responses = examRes.body.items.map((it) => it.type === 'quiz'
+      ? { itemId: it.id, type: 'quiz', selectedIndex: 0, confidence: 3 }
+      : { itemId: it.id, type: it.type, text: 'a normal response', confidence: 3 });
+    const res = await request(app).post('/api/student/exam/cloud-computing/submit').set('Authorization', 'Bearer ' + studentToken).send({ responses });
+    expect(res.status).toBe(200);
+    expect(typeof res.body.topicScore).toBe('number');
+    // Not forced to exactly 0 unless every real answer happened to be wrong/ungraded.
+    expect(res.body.results.some((r) => r.type === 'qa' && r.status === 'pending_review')).toBe(true);
+  });
 });

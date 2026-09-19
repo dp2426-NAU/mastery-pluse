@@ -105,7 +105,7 @@
     overlay.innerHTML = `
       <div class="consent-card">
         <p class="consent-title">📷 Proctoring notice</p>
-        <p class="consent-body">This exam checks, using your camera, whether you're looking at the screen — as part of your course's academic integrity policy. Detection runs only in your browser; no video is recorded or uploaded. You'll see an on-screen reminder for the 1st and 2nd time you look away. On the 3rd, your exam pauses — timer frozen — and your instructor gets a timestamp, a count, and one still image to review. You continue once they approve it.</p>
+        <p class="consent-body">This exam checks, using your camera, whether you're looking at the screen — as part of your course's academic integrity policy. Detection runs only in your browser; no video is recorded or uploaded. You'll see an on-screen reminder for the 1st and 2nd time you look away. <strong>On the 3rd, your exam ends immediately and is recorded as failed</strong> — your instructor gets a timestamp, a count, and one still image.</p>
         <div class="consent-actions">
           <button type="button" class="consent-decline">Continue without camera</button>
           <button type="button" class="consent-accept">Enable camera &amp; continue</button>
@@ -121,19 +121,25 @@
     if (el) el.textContent = text;
   }
 
+  // Set inside buildExamView to a function that force-ends the exam
+  // currently on screen as a hard fail — called from the webcam strike
+  // handler below, which lives outside that closure.
+  let forceFailCurrentExam = null;
+
   async function startWebcamMonitor() {
     if (!window.MasteryPulseWebcam) { setCamStatus('🎥 Camera monitoring unavailable'); return; }
     setCamStatus('🎥 Starting camera…');
     const result = await window.MasteryPulseWebcam.start((count, snapshot) => {
       // Strikes 1-2: a private, on-screen nudge — the student always knows
-      // this is running and gets a chance to self-correct before anyone
-      // else is told. Strike 3+: the instructor is actually notified now,
-      // and the student is told that plainly too — never a silent report.
+      // this is running and gets a chance to self-correct. Strike 3: the
+      // exam ends immediately as a hard fail — no pause, no waiting on
+      // anyone. The instructor is notified with the same timestamp/count/
+      // snapshot either way; there's just no "approve to continue" step.
       if (count < 3) {
         showToast(`👀 Attention check ${count}/3 — please keep your eyes on the screen.`, 'warn');
       } else {
-        showToast(`⚠ Pausing your exam — your instructor has been notified (${count} alerts).`, 'warn');
         socket.emit('exam:webcamAlert', { topicKey: currentTopicKey, count, snapshot });
+        if (forceFailCurrentExam) forceFailCurrentExam();
       }
     });
     webcamActive = result.ok;
@@ -144,46 +150,6 @@
     if (webcamActive && window.MasteryPulseWebcam) window.MasteryPulseWebcam.stop();
     webcamActive = false;
   }
-
-  // ---- exam pause: a 3rd webcam strike halts the exam until an
-  // instructor explicitly approves resuming — a human makes the actual
-  // call, not the heuristic that flagged it. ----
-  let examPausedOverlay = null;
-  function showExamPausedOverlay(reason) {
-    if (examPausedOverlay) return;
-    pauseExamTimer();
-    stopWebcamMonitor();
-    const nextBtn = document.getElementById('nextBtn');
-    if (nextBtn) nextBtn.disabled = true;
-    examPausedOverlay = document.createElement('div');
-    examPausedOverlay.className = 'consent-overlay';
-    examPausedOverlay.innerHTML = `
-      <div class="consent-card">
-        <p class="consent-title">⏸ Exam paused</p>
-        <p class="consent-body">${reason || 'Waiting for your instructor to review and approve before you can continue.'}</p>
-        <p class="consent-body" style="margin-bottom:0;">Your timer is frozen — you won't lose time while you wait.</p>
-      </div>`;
-    document.body.appendChild(examPausedOverlay);
-  }
-  function hideExamPausedOverlay() {
-    if (!examPausedOverlay) return;
-    examPausedOverlay.remove();
-    examPausedOverlay = null;
-    const nextBtn = document.getElementById('nextBtn');
-    if (nextBtn) nextBtn.disabled = false;
-    resumeExamTimerAfterPause();
-    showToast('▶ Your instructor approved you to continue.', 'good');
-    // Fresh monitoring for the rest of the exam — a new pause needs 3 new strikes.
-    startWebcamMonitor();
-  }
-  socket.on('exam:paused', ({ topicKey, reason }) => {
-    if (topicKey !== currentTopicKey) return;
-    showExamPausedOverlay(reason);
-  });
-  socket.on('exam:resumed', ({ topicKey }) => {
-    if (topicKey !== currentTopicKey) return;
-    hideExamPausedOverlay();
-  });
 
   function renderItemInput(item, container) {
     const card = document.createElement('div');
@@ -262,20 +228,11 @@
       renderExamTimer();
     }, 1000);
   }
-  // Freezes the countdown at whatever's left — used while an exam is
-  // paused for instructor approval, so a genuinely innocent student (bad
-  // lighting, glasses glare) doesn't lose real exam time waiting.
-  function pauseExamTimer() { clearExamTimer(); }
-  function resumeExamTimerAfterPause() {
-    if (timerOnExpire) startExamTimer(timerRemaining, timerOnExpire);
-  }
-
   // One question at a time, no way back — once you move on, that answer is
   // locked in. Matches how a real proctored exam works, and it's what makes
   // "answered so far" a meaningful, honest number for the live presence chip.
   function buildExamView(data, submitFn, topicKey) {
     currentTopicKey = topicKey;
-    if (examPausedOverlay) { examPausedOverlay.remove(); examPausedOverlay = null; }
     bannerArea.style.display = 'none';
     view.innerHTML = `
       <div class="exam-head">
@@ -327,15 +284,23 @@
     }
 
     let submitted = false;
-    const doSubmit = async () => {
+    const doSubmit = async (failed) => {
       if (submitted) return;
       submitted = true;
       clearExamTimer();
       stopIntegrityWatch();
       stopWebcamMonitor();
       socket.emit('exam:progress', { answered: data.items.length });
-      const result = await submitFn(locked, integrityEvents.slice());
-      renderResults(data, result);
+      const result = await submitFn(locked, integrityEvents.slice(), !!failed);
+      if (failed) renderFailedResults(data);
+      else renderResults(data, result);
+    };
+
+    // Called from the webcam strike handler (outside this closure) the
+    // instant a 3rd strike fires — ends the exam right where it stands.
+    forceFailCurrentExam = () => {
+      finalizeCurrent();
+      doSubmit(true);
     };
 
     nextBtn.onclick = () => {
@@ -356,16 +321,16 @@
 
   async function startExam(topicKey) {
     const data = await (await fetch('/api/student/exam/' + topicKey, { headers: H })).json();
-    buildExamView(data, async (responses, events) => {
-      const res = await fetch(`/api/student/exam/${topicKey}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events }) });
+    buildExamView(data, async (responses, events, failed) => {
+      const res = await fetch(`/api/student/exam/${topicKey}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events, forcedFail: failed }) });
       return res.json();
     }, topicKey);
   }
 
   async function startRemediation(remId) {
     const data = await (await fetch('/api/student/remediation/' + remId, { headers: H })).json();
-    buildExamView(data, async (responses, events) => {
-      const res = await fetch(`/api/student/exam/${data.topic}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events }) });
+    buildExamView(data, async (responses, events, failed) => {
+      const res = await fetch(`/api/student/exam/${data.topic}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events, forcedFail: failed }) });
       return res.json();
     }, data.topic);
   }
@@ -405,6 +370,27 @@
     `;
     document.getElementById('backLink').onclick = () => { showTopics(); loadBanner(); };
     showToast(`Submitted — instructor's heatmap just updated live.`, 'good');
+  }
+
+  // A 3rd webcam strike ends the exam here — a hard fail, not partial
+  // credit for what was answered before the flag. What was actually
+  // answered is still saved underneath (visible to the instructor), but
+  // this screen deliberately doesn't show it as a normal result.
+  function renderFailedResults(data) {
+    view.innerHTML = `
+      <div class="results">
+        <p style="color:var(--text-muted);">${data.topicName} — exam ended</p>
+        <p class="score-big bad">❌ Failed</p>
+        <p class="compare">Recorded score: 0%</p>
+      </div>
+      <div class="result-item wrong">
+        <strong>Ended for a webcam integrity violation</strong><br>
+        Your browser detected repeated attention alerts (looking away from the screen 3+ times) during this exam. It ended immediately and was recorded as failed. Your instructor has been notified, with a timestamp and a snapshot from that moment.
+      </div>
+      <div style="text-align:center;"><span class="back-link" id="backLink">← Back to topics</span></div>
+    `;
+    document.getElementById('backLink').onclick = () => { showTopics(); loadBanner(); };
+    showToast('Exam ended and recorded as failed — repeated webcam attention alerts.', 'warn');
   }
 
   showTopics();

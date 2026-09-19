@@ -121,7 +121,6 @@ All `/api/student/*` routes require a student JWT; all `/api/instructor/*` route
 | GET | `/api/instructor/remediation-impact` | Before/after class average per remediation sent |
 | GET | `/api/instructor/integrity` | Recent tab-switch events + similarity flags |
 | GET | `/api/instructor/webcam-alerts` | Recent webcam strikes, with resolved/unresolved state |
-| POST | `/api/instructor/webcam-alerts/:id/approve` | Approve a paused student to resume (see [integrity system](#the-exam-integrity-system)) |
 | GET | `/api/instructor/presence` | Snapshot of who's online and mid-exam right now |
 | GET | `/api/instructor/detail/:studentId/:topicKey` | Full drill-down: every submission, integrity event, similarity flag, webcam alert for that student/topic |
 | GET | `/api/instructor/pending-qa` | Queue of ungraded short-answer responses |
@@ -130,7 +129,7 @@ All `/api/student/*` routes require a student JWT; all `/api/instructor/*` route
 
 ## Socket.IO event reference
 
-Every student socket joins two rooms on connect: `students` (broadcast to all students) and `user:<id>` (targeted at exactly that student, across every tab they have open). Every instructor socket joins `instructors`.
+Every student socket joins the `students` room on connect (broadcast to all students); every instructor socket joins `instructors`.
 
 | Event | Direction | Purpose |
 |---|---|---|
@@ -140,13 +139,10 @@ Every student socket joins two rooms on connect: `students` (broadcast to all st
 | `exam:answer` | student → server | A quiz option was picked — graded instantly server-side |
 | `presence:progress` | server → instructors | Live per-student progress + quiz correctness trail |
 | `presence:clear` | server → instructors | A student finished or disconnected |
-| `exam:submitted` | server → instructors | A full exam was submitted and graded |
-| `exam:webcamAlert` | student → server | A 3rd+ webcam attention strike |
-| `exam:paused` | server → `user:<id>` | That student's exam is now paused, pending approval |
-| `exam:resumed` | server → `user:<id>` | An instructor approved — resume |
+| `exam:submitted` | server → instructors | A full exam was submitted and graded (`forcedFail: true` when it was ended by a webcam strike) |
+| `exam:webcamAlert` | student → server | A 3rd+ webcam attention strike — the client force-submits the exam as a hard fail right after emitting this |
 | `integrity:similarity` | server → instructors | A cross-student text-overlap flag |
-| `integrity:webcamAlert` | server → instructors | A webcam strike, live |
-| `integrity:webcamAlertResolved` | server → instructors | An alert was approved (keeps every open dashboard in sync) |
+| `integrity:webcamAlert` | server → instructors | A webcam strike, live — the exam it ended has already failed by the time this arrives |
 | `qa:reviewed` | server → instructors | A Q&A submission was just graded |
 | `remediation:new` | server → students | A remediation was broadcast |
 
@@ -184,7 +180,7 @@ Four independent signals, each explicitly framed as "detected and logged," never
 1. **One-way answer lock** — the exam UI renders one question at a time; moving to the next question finalizes the previous one client-side before it's ever sent to the server. No API exists to edit a past answer.
 2. **Integrity event trail** — `visibilitychange` and `fullscreenchange` listeners log tab-switches and fullscreen exits with timestamps, submitted alongside the exam and shown to the instructor per submission.
 3. **Cross-student similarity detection** — every free-text answer is compared, the instant it's submitted, against every other student's answer to the same question using word-set Jaccard similarity (`server/similarity.js`) — plain, explainable, deterministic math, not a black-box "AI detector." A pair above 60% overlap is flagged.
-4. **Webcam attention monitoring** — MediaPipe's Face Landmarker runs entirely client-side (no video ever leaves the browser) estimating head yaw and eye closure. Strikes 1–2 show the student a private on-screen reminder. Strike 3 **pauses the exam** — timer frozen — and notifies the instructor with a timestamp, a count, and one still-frame snapshot. The exam only resumes when an instructor clicks **Approve & resume** on the dashboard; there is deliberately no auto-timeout — a human makes the actual call, not the heuristic that flagged it.
+4. **Webcam attention monitoring** — MediaPipe's Face Landmarker runs entirely client-side (no video ever leaves the browser) estimating head yaw and eye closure. Strikes 1–2 show the student a private on-screen reminder. Strike 3 **ends the exam immediately as a hard fail (0%)** — no pause, no instructor approval step. The instructor is notified with a timestamp, a count, and one still-frame snapshot, but by the time they see it the exam is already over. This is the one integrity signal in the system where the heuristic itself is the final word, not a human reviewing it first — a deliberate, known tradeoff (see [Known limitations](#known-limitations)).
 
 ## Where the data comes from
 
@@ -200,7 +196,7 @@ Everything on this platform is either **hand-authored content** (`server/topics/
 - **`realtime.test.js`** — real HTTP server + real `socket.io-client` connections proving the live channel actually works, not just that routes return 200.
 - **`similarity.test.js`** — calibrates the Jaccard threshold against real copy-paste vs. independently-worded text.
 - **`integrity.test.js`** — the full similarity + tab-switch flow end to end.
-- **`webcam-alert.test.js`** — the full strike → pause → approve → resume flow, live over real sockets.
+- **`webcam-alert.test.js`** — the strike-detection flow live over real sockets, and the forced-fail submit path: every submission in that attempt scored 0% and marked graded (never left pending review), the live `exam:submitted` broadcast carrying `forcedFail: true`, and a normal submit proving it's unaffected.
 
 ## Deployment
 
@@ -212,14 +208,13 @@ Render (free tier), via `render.yaml` as a Blueprint. See the [README's deployme
 - **No frontend framework.** See [Technology stack](#technology-stack) above — this is a stated choice, not an oversight.
 - **Two separate login flows and two separate static apps**, not one app with a role toggle — mirrors how a real institution would actually deploy this (different subdomains/paths, different UI, different permissions), and it makes the access-control boundary something you can point at in `server/auth.js` rather than a client-side `if`.
 - **No ML/"AI" model doing the actual integrity judgment.** The similarity detector is Jaccard math; the webcam signal is a documented, explainable heuristic. Both are explicitly not claimed as proof of anything — a deliberate rejection of black-box "AI-detector" services (Turnitin, GPTZero, etc.), which are unreliable and have a track record of false accusations against genuine work.
-- **A human, not an algorithm, makes the final call** on the one place this system can actually block a student (the webcam pause) — the instructor must explicitly approve a resume.
+- **Every other integrity signal is "detect and log," never a verdict** — the answer lock, event trail, and similarity detection all leave the actual judgment to the instructor. The webcam hard-fail is the deliberate exception, stated plainly as such rather than glossed over.
 
 ## Known limitations
 
 Stated here plainly, the same honesty standard applied throughout the UI copy and README:
 
-- The webcam signal is head-pose/eye-closure *approximation*, not eye-tracking — lighting, camera angle, and glasses all affect it.
-- No auto-timeout on a paused exam — if no instructor is watching, it stays paused.
+- The webcam signal is head-pose/eye-closure *approximation*, not eye-tracking — lighting, camera angle, and glasses all affect it. The 3rd strike acts on that approximation directly, with no human check before the exam is scored 0% — a false positive genuinely fails a real attempt.
 - No persistent disk on Render's free tier — the database resets on every deploy.
 - Free-tier Render spins down after 15 minutes idle.
 - No password reset flow, no multi-instructor role separation (any instructor account can do everything), and no i18n — all reasonable scope cuts for a course project, not oversights.
