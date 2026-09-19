@@ -13,14 +13,14 @@ function timeLimitFor(itemCount) {
 function topicScoreFor(userId, topicId) {
   const row = db.prepare(`
     SELECT AVG(auto_score) AS avg FROM submissions
-    WHERE user_id = ? AND topic_id = ? AND status = 'graded'
+    WHERE user_id = ? AND topic_id = ? AND status = 'graded' AND voided = 0
   `).get(userId, topicId);
   return row.avg == null ? null : Math.round(row.avg);
 }
 
 function classAverageFor(topicId) {
   const row = db.prepare(`
-    SELECT AVG(auto_score) AS avg FROM submissions WHERE topic_id = ? AND status = 'graded'
+    SELECT AVG(auto_score) AS avg FROM submissions WHERE topic_id = ? AND status = 'graded' AND voided = 0
   `).get(topicId);
   return row.avg == null ? null : Math.round(row.avg);
 }
@@ -48,8 +48,15 @@ function checkSimilarity(itemId, submissionId, userId, text) {
   return flagged;
 }
 
-function gradeAndStore(userId, topicId, responses) {
-  const examRun = Date.now();
+// examRunOverride lets the caller pin this attempt's exam_run to the same
+// value already established when the exam started (see activeExams in
+// server.js) — matters because webcam_alerts rows are written against
+// THAT exam_run, and a later "grant retake" needs to void the exact same
+// attempt's submissions by matching on it. Falls back to a fresh
+// timestamp for any caller that never had a live exam:start (e.g. tests
+// driving the REST API directly).
+function gradeAndStore(userId, topicId, responses, examRunOverride) {
+  const examRun = examRunOverride || Date.now();
   const results = [];
   const similarityFlags = [];
   const getItem = db.prepare('SELECT * FROM items WHERE id = ?');

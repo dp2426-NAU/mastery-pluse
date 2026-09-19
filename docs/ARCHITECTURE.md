@@ -94,11 +94,13 @@ Nine tables, all created and migrated in `server/db.js`:
 | `users` | Every login (student or instructor) | `username`, `password_hash`, `role`, `display_name` |
 | `topics` | The five exam topics | `key`, `name` |
 | `items` | Every quiz/task/qa question | `topic_id`, `type`, `prompt`, `options`, `correct_index`, `misconceptions`, `keywords` |
-| `submissions` | One row per item per exam attempt | `user_id`, `topic_id`, `item_id`, `type`, `selected_index`, `response_text`, `auto_score`, `misconception_tag`, `confidence`, `status`, `exam_run` |
+| `submissions` | One row per item per exam attempt | `user_id`, `topic_id`, `item_id`, `type`, `selected_index`, `response_text`, `auto_score`, `misconception_tag`, `confidence`, `status`, `exam_run`, `voided` |
 | `remediations` | Every "Remediate" click | `topic_id`, `item_ids`, `message`, `before_avg` |
 | `exam_integrity` | Browser-detected tab-switch/fullscreen-exit events | `user_id`, `topic_id`, `exam_run`, `events` (JSON array) |
 | `similarity_flags` | Cross-student text-overlap matches | `submission_id`, `matched_submission_id`, `similarity` |
-| `webcam_alerts` | Webcam attention strikes (3rd+) | `user_id`, `topic_id`, `exam_run`, `strike_count`, `snapshot`, `resolved` |
+| `webcam_alerts` | Webcam attention strikes (3rd+, each one a hard-failed exam) | `user_id`, `topic_id`, `exam_run`, `strike_count`, `snapshot`, `resolved` |
+
+`submissions.voided` and `webcam_alerts.resolved` work together: granting a retake (see below) sets `resolved = 1` on the alert and `voided = 1` on every submission that shares its `user_id` + `topic_id` + `exam_run` — every score/average query filters `voided = 0`, so a voided attempt stops counting anywhere, but the rows themselves are never deleted (still visible, marked as excluded, in the instructor drill-down). This only works because the submit route reuses the *same* `exam_run` that was established at `exam:start`, rather than minting a fresh one — otherwise a webcam alert's `exam_run` would never match the submissions it's supposed to void.
 
 `misconceptions` and `keywords` on `items`, `options` on `items`, and `events` on `exam_integrity` are stored as JSON strings in TEXT columns (SQLite has no native array/JSON type) and parsed with `parseJSON()` on read.
 
@@ -111,8 +113,8 @@ All `/api/student/*` routes require a student JWT; all `/api/instructor/*` route
 | GET | `/health` | Unauthenticated uptime check |
 | POST | `/api/auth/student/login` | Student login → JWT |
 | POST | `/api/auth/instructor/login` | Instructor login → JWT |
-| GET | `/api/student/topics` | List topics + this student's score in each |
-| GET | `/api/student/exam/:topicKey` | Fetch an exam's items (no answers included) |
+| GET | `/api/student/topics` | List topics + this student's score in each, and whether each is `locked` |
+| GET | `/api/student/exam/:topicKey` | Fetch an exam's items (no answers included) — 403 if this topic is locked |
 | POST | `/api/student/exam/:topicKey/submit` | Submit responses; triggers grading, similarity check, live broadcasts |
 | GET | `/api/student/remediation` | Recent remediation messages for this student |
 | GET | `/api/student/remediation/:id` | Fetch a remediation's practice items as an exam |
@@ -120,7 +122,8 @@ All `/api/student/*` routes require a student JWT; all `/api/instructor/*` route
 | GET | `/api/instructor/misconceptions` | Top misconceptions across all topics |
 | GET | `/api/instructor/remediation-impact` | Before/after class average per remediation sent |
 | GET | `/api/instructor/integrity` | Recent tab-switch events + similarity flags |
-| GET | `/api/instructor/webcam-alerts` | Recent webcam strikes, with resolved/unresolved state |
+| GET | `/api/instructor/webcam-alerts` | Recent webcam strikes, each with `retakeGranted` state |
+| POST | `/api/instructor/webcam-alerts/:id/grant-retake` | Voids that failed attempt's score and unlocks the topic — see [integrity system](#the-exam-integrity-system) |
 | GET | `/api/instructor/presence` | Snapshot of who's online and mid-exam right now |
 | GET | `/api/instructor/detail/:studentId/:topicKey` | Full drill-down: every submission, integrity event, similarity flag, webcam alert for that student/topic |
 | GET | `/api/instructor/pending-qa` | Queue of ungraded short-answer responses |
@@ -129,7 +132,7 @@ All `/api/student/*` routes require a student JWT; all `/api/instructor/*` route
 
 ## Socket.IO event reference
 
-Every student socket joins the `students` room on connect (broadcast to all students); every instructor socket joins `instructors`.
+Every student socket joins two rooms on connect: `students` (broadcast to all students) and `user:<id>` (targeted at exactly that student, across every tab they have open — used to notify them live when a retake is granted). Every instructor socket joins `instructors`.
 
 | Event | Direction | Purpose |
 |---|---|---|
@@ -143,6 +146,8 @@ Every student socket joins the `students` room on connect (broadcast to all stud
 | `exam:webcamAlert` | student → server | A 3rd+ webcam attention strike — the client force-submits the exam as a hard fail right after emitting this |
 | `integrity:similarity` | server → instructors | A cross-student text-overlap flag |
 | `integrity:webcamAlert` | server → instructors | A webcam strike, live — the exam it ended has already failed by the time this arrives |
+| `integrity:retakeGranted` | server → instructors | Keeps every open dashboard in sync when any one of them grants a retake |
+| `exam:retakeGranted` | server → `user:<id>` | That student's topic just unlocked |
 | `qa:reviewed` | server → instructors | A Q&A submission was just graded |
 | `remediation:new` | server → students | A remediation was broadcast |
 
@@ -180,7 +185,8 @@ Four independent signals, each explicitly framed as "detected and logged," never
 1. **One-way answer lock** — the exam UI renders one question at a time; moving to the next question finalizes the previous one client-side before it's ever sent to the server. No API exists to edit a past answer.
 2. **Integrity event trail** — `visibilitychange` and `fullscreenchange` listeners log tab-switches and fullscreen exits with timestamps, submitted alongside the exam and shown to the instructor per submission.
 3. **Cross-student similarity detection** — every free-text answer is compared, the instant it's submitted, against every other student's answer to the same question using word-set Jaccard similarity (`server/similarity.js`) — plain, explainable, deterministic math, not a black-box "AI detector." A pair above 60% overlap is flagged.
-4. **Webcam attention monitoring** — MediaPipe's Face Landmarker runs entirely client-side (no video ever leaves the browser) estimating head yaw and eye closure. Strikes 1–2 show the student a private on-screen reminder. Strike 3 **ends the exam immediately as a hard fail (0%)** — no pause, no instructor approval step. The instructor is notified with a timestamp, a count, and one still-frame snapshot, but by the time they see it the exam is already over. This is the one integrity signal in the system where the heuristic itself is the final word, not a human reviewing it first — a deliberate, known tradeoff (see [Known limitations](#known-limitations)).
+4. **Webcam attention monitoring** — MediaPipe's Face Landmarker runs entirely client-side (no video ever leaves the browser) estimating head yaw and eye closure. Strikes 1–2 show the student a private on-screen reminder. Strike 3 **ends the exam immediately as a hard fail (0%)** — no pause, no instructor approval step before the grade is recorded. The instructor is notified with a timestamp, a count, and one still-frame snapshot, but by the time they see it the exam is already over. This is the one integrity signal in the system where the heuristic itself is the final word, not a human reviewing it first — a deliberate, known tradeoff.
+   The recourse lives after the fact instead of before it: the topic **locks** the moment the strike fires (`GET /api/student/exam/:topicKey` refuses to hand out items for it — a real gate, not a courtesy), and stays locked until an instructor clicks **Grant retake** on that alert. That voids the failed attempt's score (excluded from every average from then on, never deleted — still visible in the drill-down, marked excluded) and unlocks the topic live. The student network-issue scenario this exists for: they talk to the professor, the professor agrees it was a genuine technical problem, one click clears it.
 
 ## Where the data comes from
 
@@ -214,7 +220,7 @@ Render (free tier), via `render.yaml` as a Blueprint. See the [README's deployme
 
 Stated here plainly, the same honesty standard applied throughout the UI copy and README:
 
-- The webcam signal is head-pose/eye-closure *approximation*, not eye-tracking — lighting, camera angle, and glasses all affect it. The 3rd strike acts on that approximation directly, with no human check before the exam is scored 0% — a false positive genuinely fails a real attempt.
+- The webcam signal is head-pose/eye-closure *approximation*, not eye-tracking — lighting, camera angle, and glasses all affect it. The 3rd strike acts on that approximation directly, with no human check before the exam is scored 0% — a false positive genuinely fails a real attempt. The only recourse is after the fact (the instructor's **Grant retake**), and only if the student thinks to raise it.
 - No persistent disk on Render's free tier — the database resets on every deploy.
 - Free-tier Render spins down after 15 minutes idle.
 - No password reset flow, no multi-instructor role separation (any instructor account can do everything), and no i18n — all reasonable scope cuts for a course project, not oversights.

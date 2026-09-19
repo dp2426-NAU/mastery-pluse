@@ -37,6 +37,15 @@
     loadBanner();
   });
 
+  // The instructor granted a retake after a webcam-strike failure — the
+  // topic unlocks immediately. Only meaningful from the topics screen
+  // (can't happen mid-exam, since the failure that locked it already ended
+  // whatever exam was running).
+  socket.on('exam:retakeGranted', (r) => {
+    showToast(`✅ Your instructor granted you a retake for ${r.topicName} — you're clear to try again.`, 'good');
+    if (view.querySelector('#grid')) showTopics();
+  });
+
   async function loadBanner() {
     const rows = await (await fetch('/api/student/remediation', { headers: H })).json();
     if (!rows.length) { bannerArea.innerHTML = ''; return; }
@@ -56,10 +65,14 @@
     const grid = document.getElementById('grid');
     topics.forEach(t => {
       const card = document.createElement('button');
-      card.className = 'topic-card';
+      card.className = 'topic-card' + (t.locked ? ' locked' : '');
       const scoreClass = t.myScore == null ? '' : (t.myScore >= 75 ? 'good' : t.myScore >= 50 ? '' : 'bad');
-      card.innerHTML = `<p class="name">${t.name}</p><p class="score ${scoreClass}">${t.myScore == null ? 'Not attempted' : t.myScore + '%'}</p>`;
-      card.onclick = () => startExam(t.key);
+      card.innerHTML = t.locked
+        ? `<p class="name">${t.name}</p><p class="score bad">🔒 Locked — ask your instructor</p>`
+        : `<p class="name">${t.name}</p><p class="score ${scoreClass}">${t.myScore == null ? 'Not attempted' : t.myScore + '%'}</p>`;
+      card.onclick = t.locked
+        ? () => showToast('This topic is locked after a webcam integrity failure. Your instructor needs to grant a retake first.', 'warn')
+        : () => startExam(t.key);
       grid.appendChild(card);
     });
   }

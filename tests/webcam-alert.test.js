@@ -13,12 +13,15 @@ const { app, server } = require('../server/server');
 let port;
 let studentToken;
 let instructorToken;
+let student5Token; // isolated from student4's webcam-alert history used by the tests above
 
 beforeAll((done) => {
   server.listen(0, async () => {
     port = server.address().port;
     const s = await request(app).post('/api/auth/student/login').send({ username: 'student4', password: 'Pulse#Student4' });
     studentToken = s.body.token;
+    const s5 = await request(app).post('/api/auth/student/login').send({ username: 'student5', password: 'Pulse#Student5' });
+    student5Token = s5.body.token;
     const i = await request(app).post('/api/auth/instructor/login').send({ username: 'prof.demo', password: 'MasterClass#2026' });
     instructorToken = i.body.token;
     done();
@@ -129,20 +132,24 @@ describe('forcedFail submit — the 3rd strike ends the exam as a hard fail', ()
     };
   }
 
+  // Uses student5 (Fatima Ali), isolated from student4's webcam-alert
+  // history built up by the tests above — those already lock a couple of
+  // topics for student4 via the new grant-retake feature, which would
+  // otherwise collide with reusing those same topic keys here.
   test('every submission from a forcedFail attempt is scored 0% and marked graded, even correct quiz answers', async () => {
-    const res = await submitForced(studentToken, 'full-stack')();
+    const res = await submitForced(student5Token, 'full-stack')();
     expect(res.status).toBe(200);
     expect(res.body.topicScore).toBe(0);
     expect(res.body.results.every((r) => r.type !== 'quiz' || r.correct !== undefined)).toBe(true); // grading still ran normally underneath
 
     const heatmap = await request(app).get('/api/instructor/heatmap').set('Authorization', 'Bearer ' + instructorToken);
-    const student = heatmap.body.students.find((s) => s.name === 'Wei Zhang');
+    const student = heatmap.body.students.find((s) => s.name === 'Fatima Ali');
     expect(student.scores['full-stack']).toBe(0);
 
     // A Q&A item in this exam should be forced straight to graded/0, never
     // left sitting in the pending-review queue.
     const pending = await request(app).get('/api/instructor/pending-qa').set('Authorization', 'Bearer ' + instructorToken);
-    expect(pending.body.some((p) => p.studentName === 'Wei Zhang' && p.topicName === 'Full Stack Development')).toBe(false);
+    expect(pending.body.some((p) => p.studentName === 'Fatima Ali' && p.topicName === 'Full Stack Development')).toBe(false);
   });
 
   test('the live exam:submitted broadcast marks it forcedFail so the dashboard can render it as a failure, not a normal score', (done) => {
@@ -155,8 +162,52 @@ describe('forcedFail submit — the 3rd strike ends the exam as a hard fail', ()
         instrSocket.close();
         done();
       });
-      await submitForced(studentToken, 'networking')();
+      await submitForced(student5Token, 'networking')();
     });
+  }, 10000);
+
+  test('a locked topic unlocks after the instructor grants a retake, and the voided score stops counting', async () => {
+    // Mirrors the real client flow: the exam is fetched BEFORE any strike
+    // happens, and the submit later reuses those same items.
+    const examRes = await request(app).get('/api/student/exam/cybersecurity').set('Authorization', 'Bearer ' + student5Token);
+    const responses = examRes.body.items.map((it) => it.type === 'quiz'
+      ? { itemId: it.id, type: 'quiz', selectedIndex: 0, confidence: 3 }
+      : { itemId: it.id, type: it.type, text: 'a normal response', confidence: 3 });
+
+    const studSocket = connect(student5Token);
+    const instrSocket = connect(instructorToken);
+    await Promise.all([
+      new Promise((r) => studSocket.on('connect', r)),
+      new Promise((r) => instrSocket.on('connect', r)),
+    ]);
+
+    studSocket.emit('exam:start', { topicKey: 'cybersecurity', topicName: 'Cybersecurity', total: responses.length });
+    const alertPromise = new Promise((resolve) => instrSocket.on('integrity:webcamAlert', resolve));
+    studSocket.emit('exam:webcamAlert', { topicKey: 'cybersecurity', count: 3, snapshot: TINY_SNAPSHOT });
+    const alertPayload = await alertPromise;
+
+    const submitRes = await request(app).post('/api/student/exam/cybersecurity/submit').set('Authorization', 'Bearer ' + student5Token)
+      .send({ responses, forcedFail: true });
+    expect(submitRes.body.topicScore).toBe(0);
+
+    const lockedRes = await request(app).get('/api/student/exam/cybersecurity').set('Authorization', 'Bearer ' + student5Token);
+    expect(lockedRes.status).toBe(403);
+
+    const resumedPromise = new Promise((resolve) => studSocket.on('exam:retakeGranted', resolve));
+    const grantRes = await request(app).post(`/api/instructor/webcam-alerts/${alertPayload.alertId}/grant-retake`).set('Authorization', 'Bearer ' + instructorToken);
+    expect(grantRes.body.ok).toBe(true);
+    await resumedPromise;
+
+    const unlockedRes = await request(app).get('/api/student/exam/cybersecurity').set('Authorization', 'Bearer ' + student5Token);
+    expect(unlockedRes.status).toBe(200);
+
+    const topics = await request(app).get('/api/student/topics').set('Authorization', 'Bearer ' + student5Token);
+    const cyberTopic = topics.body.find((t) => t.key === 'cybersecurity');
+    expect(cyberTopic.locked).toBe(false);
+    expect(cyberTopic.myScore).toBe(null); // the failed attempt is voided; nothing else submitted since
+
+    studSocket.close();
+    instrSocket.close();
   }, 10000);
 
   test('a normal submit (no forcedFail) is unaffected and keeps real per-item scores', async () => {

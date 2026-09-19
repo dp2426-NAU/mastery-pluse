@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS submissions (
   confidence INTEGER,         -- 1-5, student's self-rated confidence at answer time
   status TEXT NOT NULL DEFAULT 'graded' CHECK(status IN ('graded','pending_review')),
   exam_run INTEGER NOT NULL,  -- groups items submitted together as one exam
+  voided INTEGER NOT NULL DEFAULT 0, -- 1 once an instructor grants a retake for
+                                      -- this exact attempt (see webcam_alerts.resolved) --
+                                      -- excluded from every score/average, but kept
+                                      -- visible in the instructor drill-down, never deleted
   ts TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -97,7 +101,9 @@ CREATE TABLE IF NOT EXISTS webcam_alerts (
   exam_run INTEGER NOT NULL,
   strike_count INTEGER NOT NULL,
   snapshot TEXT, -- base64 JPEG data URL, may be null if the student declined the snapshot/camera
-  resolved INTEGER NOT NULL DEFAULT 0, -- 1 once an instructor has approved the student to resume
+  resolved INTEGER NOT NULL DEFAULT 0, -- 1 once an instructor grants a retake for the exam
+                                        -- this alert failed -- voids that attempt's score
+                                        -- and unlocks the topic for the student to try again
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
@@ -112,5 +118,6 @@ function ensureColumn(table, column, ddl) {
 ensureColumn('submissions', 'confidence', 'confidence INTEGER');
 ensureColumn('remediations', 'before_avg', 'before_avg REAL');
 ensureColumn('webcam_alerts', 'resolved', 'resolved INTEGER NOT NULL DEFAULT 0');
+ensureColumn('submissions', 'voided', 'voided INTEGER NOT NULL DEFAULT 0');
 
 module.exports = db;

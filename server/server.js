@@ -28,6 +28,19 @@ const io = new Server(server);
 
 app.get('/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
+// A topic is locked for a student the moment a webcam strike fails their
+// exam, and stays locked until an instructor explicitly grants a retake
+// (POST /api/instructor/webcam-alerts/:id/grant-retake) — see "student
+// genuinely had a technical issue, talked to the professor" in the
+// project history. This is a real gate, not just a courtesy: the exam
+// route itself refuses to hand out items for a locked topic.
+const isTopicLockedStmt = db.prepare(`
+  SELECT 1 FROM webcam_alerts WHERE user_id = ? AND topic_id = ? AND resolved = 0 LIMIT 1
+`);
+function isTopicLocked(userId, topicId) {
+  return !!isTopicLockedStmt.get(userId, topicId);
+}
+
 // ---------- Auth ----------
 app.post('/api/auth/student/login', loginLimiter, validate(loginSchema), (req, res) => {
   const { username, password } = req.body;
@@ -48,12 +61,16 @@ app.get('/api/student/topics', requireRole('student'), (req, res) => {
   const topics = db.prepare('SELECT * FROM topics ORDER BY name').all();
   res.json(topics.map(t => ({
     key: t.key, name: t.name, myScore: topicScoreFor(req.user.sub, t.id),
+    locked: isTopicLocked(req.user.sub, t.id),
   })));
 });
 
 app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
+  if (isTopicLocked(req.user.sub, topic.id)) {
+    return res.status(403).json({ error: 'This topic is locked after a webcam integrity failure. Ask your instructor to grant a retake.' });
+  }
   const items = db.prepare('SELECT * FROM items WHERE topic_id = ? ORDER BY type').all(topic.id);
   res.json({
     topic: topic.key,
@@ -71,7 +88,13 @@ app.post('/api/student/exam/:topicKey/submit', submitLimiter, requireRole('stude
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
   const { responses, integrityEvents, forcedFail } = req.body;
 
-  const results = gradeAndStore(req.user.sub, topic.id, responses);
+  // Reuse the exam_run already established at exam:start (if this attempt
+  // had one) rather than letting gradeAndStore mint a fresh one — a
+  // webcam_alerts row for a hard-fail is written against THAT exam_run,
+  // and granting a retake later needs to void the exact same rows by
+  // matching on it.
+  const liveState = activeExams.get(req.user.sub);
+  const results = gradeAndStore(req.user.sub, topic.id, responses, liveState?.examRun);
 
   // A 3rd webcam strike ends the exam immediately as a hard fail — not a
   // pause, not a review queue. Every submission from THIS exam attempt is
@@ -146,7 +169,7 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
   students.forEach(s => { cells[s.id] = {}; });
   const scored = db.prepare(`
     SELECT user_id, topic_id, AVG(auto_score) AS avg
-    FROM submissions WHERE status = 'graded' GROUP BY user_id, topic_id
+    FROM submissions WHERE status = 'graded' AND voided = 0 GROUP BY user_id, topic_id
   `).all();
   scored.forEach(row => {
     if (!cells[row.user_id]) cells[row.user_id] = {};
@@ -155,7 +178,7 @@ app.get('/api/instructor/heatmap', requireRole('instructor'), (req, res) => {
 
   const misconceptionRows = db.prepare(`
     SELECT topic_id, misconception_tag, COUNT(*) AS n
-    FROM submissions WHERE misconception_tag IS NOT NULL
+    FROM submissions WHERE misconception_tag IS NOT NULL AND voided = 0
     GROUP BY topic_id, misconception_tag
   `).all();
   const topMisconception = {};
@@ -209,7 +232,7 @@ app.get('/api/instructor/misconceptions', requireRole('instructor'), (req, res) 
   const rows = db.prepare(`
     SELECT s.misconception_tag AS tag, t.key AS topicKey, t.name AS topicName, COUNT(*) AS n
     FROM submissions s JOIN topics t ON t.id = s.topic_id
-    WHERE s.misconception_tag IS NOT NULL
+    WHERE s.misconception_tag IS NOT NULL AND s.voided = 0
     GROUP BY s.misconception_tag, s.topic_id
     ORDER BY n DESC LIMIT 8
   `).all();
@@ -225,7 +248,7 @@ app.get('/api/instructor/remediation-impact', requireRole('instructor'), (req, r
   const out = rows.map(r => {
     const after = db.prepare(`
       SELECT AVG(auto_score) AS avg, COUNT(*) AS n FROM submissions
-      WHERE topic_id = ? AND status = 'graded' AND ts > ?
+      WHERE topic_id = ? AND status = 'graded' AND voided = 0 AND ts > ?
     `).get(r.topic_id, r.created_at);
     return {
       id: r.id, topicKey: r.topicKey, topicName: r.topicName, createdAt: r.created_at,
@@ -272,13 +295,13 @@ app.get('/api/instructor/integrity', requireRole('instructor'), (req, res) => {
 });
 
 // Webcam attention alerts (head turned away / eyes closed, 3+ times in one
-// sitting) — each one IS the reason that exam attempt ended: the 3rd
-// strike fails the exam immediately (see exam:webcamAlert below), so
-// there's nothing left to approve here, just a record with the single
-// snapshot captured at that strike for the instructor to review.
+// sitting) — each one IS the reason that exam attempt ended, a hard fail.
+// If a student has a genuine excuse (network drop, technical issue) they
+// take up with the instructor directly; "Grant retake" below is how that
+// gets reflected in the system.
 app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) => {
   const rows = db.prepare(`
-    SELECT wa.id, wa.strike_count, wa.snapshot, wa.created_at,
+    SELECT wa.id, wa.strike_count, wa.snapshot, wa.created_at, wa.resolved,
       u.display_name AS studentName, t.key AS topicKey, t.name AS topicName
     FROM webcam_alerts wa
     JOIN users u ON u.id = wa.user_id
@@ -287,8 +310,34 @@ app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) =
   `).all();
   res.json(rows.map(r => ({
     id: r.id, studentName: r.studentName, topicKey: r.topicKey, topicName: r.topicName,
-    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at,
+    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at, retakeGranted: !!r.resolved,
   })));
+});
+
+// Grants a retake for the exact exam attempt this alert failed: voids
+// every submission from that attempt (excluded from every score/average
+// from here on, but never deleted — still visible, marked voided, in the
+// instructor drill-down) and unlocks the topic so the student can attempt
+// it again. Tells that exact student live, wherever they're logged in.
+app.post('/api/instructor/webcam-alerts/:id/grant-retake', requireRole('instructor'), (req, res) => {
+  const alertId = Number(req.params.id);
+  const alert = db.prepare(`
+    SELECT wa.id, wa.user_id, wa.exam_run, wa.resolved, t.id AS topicId, t.key AS topicKey, t.name AS topicName,
+      u.display_name AS studentName
+    FROM webcam_alerts wa JOIN topics t ON t.id = wa.topic_id JOIN users u ON u.id = wa.user_id
+    WHERE wa.id = ?
+  `).get(alertId);
+  if (!alert) return res.status(404).json({ error: 'Alert not found.' });
+  if (alert.resolved) return res.json({ ok: true, alreadyGranted: true });
+
+  db.prepare('UPDATE webcam_alerts SET resolved = 1 WHERE id = ?').run(alertId);
+  db.prepare('UPDATE submissions SET voided = 1 WHERE user_id = ? AND topic_id = ? AND exam_run = ?')
+    .run(alert.user_id, alert.topicId, alert.exam_run);
+
+  io.to('user:' + alert.user_id).emit('exam:retakeGranted', { topicKey: alert.topicKey, topicName: alert.topicName });
+  io.to('instructors').emit('integrity:retakeGranted', { alertId, studentId: alert.user_id, studentName: alert.studentName, topicKey: alert.topicKey });
+
+  res.json({ ok: true });
 });
 
 app.get('/api/instructor/presence', requireRole('instructor'), (req, res) => {
@@ -327,16 +376,16 @@ app.get('/api/instructor/detail/:studentId/:topicKey', requireRole('instructor')
   }));
 
   const webcamAlerts = db.prepare(`
-    SELECT strike_count, snapshot, created_at FROM webcam_alerts
+    SELECT id, strike_count, snapshot, created_at, resolved FROM webcam_alerts
     WHERE user_id = ? AND topic_id = ? ORDER BY created_at DESC
   `).all(studentId, topic.id).map((r) => ({
-    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at,
+    id: r.id, count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at, retakeGranted: !!r.resolved,
   }));
 
   res.json({
     submissions: subs.map(s => ({
       id: s.id, type: s.type, status: s.status, autoScore: s.auto_score,
-      misconceptionTag: s.misconception_tag, ts: s.ts,
+      misconceptionTag: s.misconception_tag, ts: s.ts, voided: !!s.voided,
       prompt: s.prompt,
       options: s.options ? parseJSON(s.options, []) : undefined,
       selectedIndex: s.selected_index,
@@ -385,7 +434,7 @@ app.post('/api/instructor/remediate', requireRole('instructor'), validate(remedi
 
   let missed = db.prepare(`
     SELECT item_id, COUNT(*) AS misses FROM submissions
-    WHERE topic_id = ? AND type = 'quiz' AND auto_score = 0
+    WHERE topic_id = ? AND type = 'quiz' AND auto_score = 0 AND voided = 0
     GROUP BY item_id ORDER BY misses DESC LIMIT 5
   `).all(topic.id).map(r => r.item_id);
 
@@ -446,6 +495,9 @@ io.on('connection', (socket) => {
   // ---- student presence: who's connected, and what they're mid-way through ----
   if (!onlineStudents.has(userId)) onlineStudents.set(userId, new Set());
   onlineStudents.get(userId).add(socket.id);
+  // A private room for exactly this student — used to notify them live
+  // (e.g. a retake being granted) on whichever tab they're actually using.
+  socket.join('user:' + userId);
   broadcastOnline();
 
   socket.on('exam:start', ({ topicKey, topicName, total }) => {

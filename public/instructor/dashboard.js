@@ -141,8 +141,13 @@
     ).join('');
     const webcamHtml = (data.webcamAlerts || []).map((w) => `
       <div class="detail-item pending">
-        <strong>🎥 ${w.count} webcam attention alert${w.count === 1 ? '' : 's'}</strong> at ${new Date(w.createdAt + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        <strong>🎥 ${w.count} webcam attention alert${w.count === 1 ? '' : 's'}</strong> — exam ended, recorded as failed, at ${new Date(w.createdAt + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         ${w.snapshot ? `<img class="cam-thumb-lg" src="${w.snapshot}" alt="Snapshot captured at the flagged moment">` : ''}
+        <div style="margin-top:8px;">
+          ${w.retakeGranted
+            ? '<span class="tag" style="color:var(--good); border-color:rgba(51,197,142,.4);">✓ Retake granted — score excluded</span>'
+            : `<button class="grant-retake-btn" data-id="${w.id}" style="width:auto; margin:0; padding:7px 12px; font-size:.78rem;">Grant retake</button>`}
+        </div>
       </div>`
     ).join('');
     const flagsHtml = (integrityHtml || similarityHtml || webcamHtml)
@@ -150,28 +155,41 @@
       : '';
 
     const html = subs.map(s => {
+      const voidedTag = s.voided ? '<div class="tag" style="color:var(--good); border-color:rgba(51,197,142,.4); margin-top:4px;">excluded — retake granted</div>' : '';
       if (s.type === 'quiz') {
         const correct = s.selectedIndex === s.correctIndex;
-        return `<div class="detail-item ${correct ? 'right' : 'wrong'}">
+        return `<div class="detail-item ${correct ? 'right' : 'wrong'}" style="${s.voided ? 'opacity:.55;' : ''}">
           <strong>${correct ? 'Correct' : 'Missed'}:</strong> ${s.prompt}<br>
           ${correct ? '' : `Answered: "${s.options[s.selectedIndex] ?? '—'}" · Correct: "${s.options[s.correctIndex]}"`}
-          ${s.misconceptionTag ? `<div class="tag">${s.misconceptionTag.replace(/-/g, ' ')}</div>` : ''}
+          ${s.misconceptionTag ? `<div class="tag">${s.misconceptionTag.replace(/-/g, ' ')}</div>` : ''}${voidedTag}
         </div>`;
       }
       if (s.type === 'task') {
-        return `<div class="detail-item ${s.autoScore >= 70 ? 'right' : 'wrong'}">
+        return `<div class="detail-item ${s.autoScore >= 70 ? 'right' : 'wrong'}" style="${s.voided ? 'opacity:.55;' : ''}">
           <strong>Task — ${s.autoScore}%</strong><br>${s.prompt}
-          <div style="margin-top:6px; color:var(--text-muted);">Response: "${s.responseText}"</div>
+          <div style="margin-top:6px; color:var(--text-muted);">Response: "${s.responseText}"</div>${voidedTag}
         </div>`;
       }
-      return `<div class="detail-item ${s.status === 'pending_review' ? 'pending' : 'right'}">
+      return `<div class="detail-item ${s.status === 'pending_review' ? 'pending' : 'right'}" style="${s.voided ? 'opacity:.55;' : ''}">
         <strong>Short answer${s.status === 'pending_review' ? ' — pending review' : ` — scored ${s.autoScore}%`}</strong><br>${s.prompt}
-        <div style="margin-top:6px; color:var(--text-muted);">Response: "${s.responseText}"</div>
+        <div style="margin-top:6px; color:var(--text-muted);">Response: "${s.responseText}"</div>${voidedTag}
       </div>`;
     }).join('') || '<p class="empty">No submissions yet.</p>';
 
     drawer.innerHTML = `<button class="close" id="closeDrawer">✕</button><h3>${studentName} — ${topicName}</h3>${flagsHtml}${html}`;
     document.getElementById('closeDrawer').onclick = () => overlay.classList.remove('open');
+    drawer.querySelectorAll('.grant-retake-btn').forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = 'Granting…';
+        await fetch(`/api/instructor/webcam-alerts/${btn.dataset.id}/grant-retake`, { method: 'POST', headers: H });
+        showToast('Retake granted — the student can try again, and this attempt no longer counts.', 'good');
+        openDetail(studentId, topicKey, studentName, topicName);
+        loadHeatmap();
+        loadMisconceptions();
+        loadWebcamAlerts();
+      };
+    });
     overlay.classList.add('open');
   }
   overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove('open'); };
@@ -284,8 +302,22 @@
           <div><strong>${r.studentName}</strong> — ${r.topicName}</div>
           <div class="cam-meta">${r.count} attention alert${r.count === 1 ? '' : 's'} — exam ended &amp; recorded as failed · ${timeLabel(r.createdAt + 'Z')}</div>
         </div>
+        ${r.retakeGranted
+          ? '<span class="tag" style="color:var(--good); border-color:rgba(51,197,142,.4); flex-shrink:0;">✓ Retake granted</span>'
+          : `<button class="grant-retake-btn" data-id="${r.id}" style="width:auto; margin:0; padding:7px 12px; font-size:.78rem; flex-shrink:0;">Grant retake</button>`}
       </div>
     `).join('');
+    el.querySelectorAll('.grant-retake-btn').forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = 'Granting…';
+        await fetch(`/api/instructor/webcam-alerts/${btn.dataset.id}/grant-retake`, { method: 'POST', headers: H });
+        showToast('Retake granted — the student can try again, and this attempt no longer counts.', 'good');
+        loadWebcamAlerts();
+        loadHeatmap();
+        loadMisconceptions();
+      };
+    });
   }
 
   // ---- live presence: students currently mid-exam, before they've submitted ----
@@ -357,6 +389,15 @@
     flashEventBar('var(--bad)');
     loadWebcamAlerts();
     loadHeatmap();
+  });
+
+  // Fires for every open instructor dashboard, not just whichever one
+  // clicked Grant retake — keeps two instructors watching the same class in sync.
+  socket.on('integrity:retakeGranted', (payload) => {
+    pushFeedItem(`<span>✅ Retake granted — <strong>${payload.studentName}</strong>, ${payload.topicKey}</span><span class="time">${timeLabel()}</span>`);
+    loadWebcamAlerts();
+    loadHeatmap();
+    loadMisconceptions();
   });
 
   socket.on('qa:reviewed', (payload) => {
