@@ -54,6 +54,8 @@ async function sendWebcamAlertEmail({ studentName, topicName, count, ts, snapsho
       console.error('Resend email send failed:', res.status, text);
       return { error: true, status: res.status };
     }
+    const body = await res.json().catch(() => ({}));
+    console.log(`Webcam alert email queued via Resend for ${to} (id: ${body.id || 'unknown'})`);
     return { ok: true };
   } catch (err) {
     console.error('Resend email send error:', err.message);
