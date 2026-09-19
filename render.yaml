@@ -3,8 +3,17 @@ services:
     name: mastery-pulse
     env: node
     plan: free
-    buildCommand: npm install && npm run seed
+    buildCommand: npm install && npm run seed && npm run seed:demo
     startCommand: npm start
     envVars:
       - key: JWT_SECRET
         generateValue: true
+      # Optional — webcam-alert emails via Resend. Unset by default, and
+      # the app runs fine without them (dashboard alerts still work; only
+      # the email goes silently unsent). Add real values in the Render
+      # dashboard (Settings -> Environment) rather than here, so a secret
+      # is never committed to this file.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_TO_EMAIL
+        sync: false

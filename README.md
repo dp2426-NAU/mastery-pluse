@@ -146,7 +146,12 @@ mastery-pulse/
 1. Push this folder to a new GitHub repository.
 2. In Render, choose **New → Blueprint** and point it at the repo — `render.yaml` configures the build/start commands and generates a `JWT_SECRET` automatically.
 3. Once deployed, share `/student/login.html` with students and `/instructor/login.html` with the instructor.
-4. Free-tier gotchas: the service spins down after 15 minutes idle (open it a couple of minutes before class), and if you move from SQLite to Postgres for longer persistence, use a free Neon or Supabase instance rather than Render's own free Postgres, which expires after 30 days.
+
+### Before you actually rely on it live, know these three things
+
+1. **The database resets on every deploy.** Render's free web service has no persistent disk, so `npm run seed && npm run seed:demo` (the build command) runs fresh on every push — any real exam data from a previous session is gone, replaced by demo accounts + realistic seeded activity. That's actually the right behavior for a course demo (a clean, populated starting point every time), but it means this is **not** a place to accumulate real student history across weeks. If you eventually need that, move to a real hosted database (a free Neon or Supabase Postgres instance, not Render's own free Postgres, which expires after 30 days) — that's a real migration, not a config flag, so ask if you get there.
+2. **Webcam-alert emails need two environment variables you set yourself.** `render.yaml` declares `RESEND_API_KEY` and `ALERT_TO_EMAIL` as vars Render should ask you for, but their actual values live only in the Render dashboard (Settings → Environment on the service), never in this repo. Without them, the app runs completely normally — the instructor dashboard alert still fires, only the email is silently skipped.
+3. **Free tier spins down after 15 minutes idle.** Open the live URL a couple of minutes before you need it so the first request isn't the one that wakes it up.
 
 ## Extending this with Antigravity or another AI coding agent
 
