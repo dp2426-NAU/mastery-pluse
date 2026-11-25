@@ -28,9 +28,21 @@ A fourth integrity signal, alongside the answer lock, event trail, and similarit
 
 No installation is required for this: the face-detection library loads from a CDN at exam time, and email uses Resend's plain HTTP API via Node's built-in `fetch` — no SDK dependency added to `package.json`. See `.env.example` for the two optional environment variables that turn email alerts on.
 
-## Why two completely separate panels
+## Administrator dashboard
 
-Students and instructors are different roles with different data access, so they get different logins, different UIs, and different API permissions — not one screen with a toggle. A student's JWT cannot call any `/api/instructor/*` route, and vice versa (see `server/auth.js`).
+A third panel at `/admin/login.html`, separate from the student and instructor ones:
+
+- **User accounts**: create student, instructor and administrator accounts (with a generated password if you leave it blank), edit names, reset passwords, disable, enable or delete. Accounts with exam records can be disabled but not deleted, so results are never lost.
+- **Roles and permissions**: assign each account a role, and choose what students and instructors may do. The server enforces every switch.
+- **Access control**: disabling an account, changing its role or resetting its password ends its open sessions at once. Sign-in can be closed per role, and maintenance mode blocks everyone except administrators while still accepting exams in progress.
+- **System settings**: exam time per question, webcam monitoring, session length, and a site-wide announcement.
+- **Audit log**: every administrator change, who made it, and when.
+
+Administrators can't disable, demote or delete themselves, so there is always one who can sign in.
+
+## Why completely separate panels
+
+Students, instructors and administrators are different roles with different data access, so they get different logins, different UIs, and different API permissions — not one screen with a toggle. A student's JWT cannot call any `/api/instructor/*` route, and vice versa (see `server/auth.js`).
 
 ## The three exam item types
 
@@ -60,6 +72,7 @@ npm start            # starts the server on http://localhost:3000
 
 | Role | Username | Password |
 |---|---|---|
+| Administrator | `admin.demo` | `AdminPulse#2026` (unless `ADMIN_PASSWORD` is set) |
 | Instructor | `prof.demo` | `MasterClass#2026` |
 | Student | `student1` … `student10` | `Pulse#Student1` … `Pulse#Student10` |
 
@@ -73,7 +86,7 @@ This isn't just manually-clicked-through — the grading engine, role-based acce
 npm test
 ```
 
-62 tests across 7 suites, run on every push via GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
+81 tests across 8 suites, run on every push via GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)):
 
 - **`tests/grading.test.js`** — unit tests against the real seeded content (`server/grading.js`): correct/wrong quiz scoring, the misconception tag mapped to the *specific* wrong option chosen, keyword-coverage scoring for tasks, confidence clamping, and confirming a pending Q&A never counts toward a topic average.
 - **`tests/auth.test.js`** — login success/failure paths, and `requireRole()` middleware rejecting a wrong-role token before a route handler ever runs.
@@ -82,6 +95,8 @@ npm test
 - **`tests/similarity.test.js`** — calibrates the word-set Jaccard threshold against real copy-paste vs. independently-worded example answers.
 - **`tests/integrity.test.js`** — drives the real submit flow to verify cross-student similarity flagging, heatmap marking, that flags never leak into a student's own submit response, and integrity-event storage.
 - **`tests/webcam-alert.test.js`** — real socket connections proving a 3rd-strike webcam alert reaches the instructor live, gets stored, marks the heatmap and drill-down, that sub-threshold strikes are ignored, and that an oversized snapshot payload is dropped without losing the strike record.
+
+- **`tests/admin.test.js`**: account management, immediate session revocation over a real socket, every permission and setting, the audit log, and upgrading an older database.
 
 Two more layers beyond tests:
 - **Input validation** ([server/validation.js](server/validation.js), via `zod`) — every request body is checked against a schema before the route handler runs; a malformed request gets a specific 400, not a 500 or silent bad behavior.
@@ -150,11 +165,12 @@ mastery-pulse/
 2. In Render, choose **New → Blueprint** and point it at the repo — `render.yaml` configures the build/start commands and generates a `JWT_SECRET` automatically.
 3. Once deployed, share `/student/login.html` with students and `/instructor/login.html` with the instructor.
 
-### Before you actually rely on it live, know these three things
+### Before you actually rely on it live, know these four things
 
 1. **The database resets on every deploy.** Render's free web service has no persistent disk, so `npm run seed && npm run seed:demo` (the build command) runs fresh on every push — any real exam data from a previous session is gone, replaced by demo accounts + realistic seeded activity. That's actually the right behavior for a course demo (a clean, populated starting point every time), but it means this is **not** a place to accumulate real student history across weeks. If you eventually need that, move to a real hosted database (a free Neon or Supabase Postgres instance, not Render's own free Postgres, which expires after 30 days) — that's a real migration, not a config flag, so ask if you get there.
 2. **Webcam-alert emails need two environment variables you set yourself.** `render.yaml` declares `RESEND_API_KEY` and `ALERT_TO_EMAIL` as vars Render should ask you for, but their actual values live only in the Render dashboard (Settings → Environment on the service), never in this repo. Without them, the app runs completely normally — the instructor dashboard alert still fires, only the email is silently skipped.
-3. **Free tier spins down after 15 minutes idle.** Open the live URL a couple of minutes before you need it so the first request isn't the one that wakes it up.
+3. **Set `ADMIN_PASSWORD` in Render (Settings → Environment).** The default administrator password above is public, so until you change it anyone can manage the live site.
+4. **Free tier spins down after 15 minutes idle.** This also discards accounts and settings created since the last deploy, because there is no persistent disk. Open the live URL a couple of minutes before you need it so the first request isn't the one that wakes it up.
 
 ## Extending this with Antigravity or another AI coding agent
 

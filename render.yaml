@@ -8,6 +8,10 @@ services:
     envVars:
       - key: JWT_SECRET
         generateValue: true
+      # Password for the admin.demo account. Unset, the public demo
+      # password from the README is used.
+      - key: ADMIN_PASSWORD
+        sync: false
       # Optional — webcam-alert emails via Resend. Unset by default, and
       # the app runs fine without them (dashboard alerts still work; only
       # the email goes silently unsent). Add real values in the Render

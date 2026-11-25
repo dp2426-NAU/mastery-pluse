@@ -92,6 +92,7 @@ a{ color:var(--accent); }
   border:1px solid var(--line); color:var(--text-muted);
 }
 .role-badge.student{ border-color:rgba(91,140,255,.4); color:var(--accent); }
+.role-badge.admin{ border-color:rgba(51,197,142,.4); color:var(--good); }
 .role-badge.instructor{ border-color:rgba(201,162,75,.4); color:var(--gold); }
 
 /* ---- stat strip: landing-page metrics + dashboard status tiles ---- */
@@ -130,6 +131,8 @@ a{ color:var(--accent); }
 .role-card:hover{ transform:translateY(-3px); box-shadow:var(--shadow-lg); }
 .role-card.student{ border-top:3px solid var(--accent); }
 .role-card.instructor{ border-top:3px solid var(--gold); }
+.role-card.admin{ border-top:3px solid var(--good); }
+.role-card.admin .go{ color:var(--good); }
 .role-card h2{ font-family:var(--serif); font-size:1.25rem; margin:8px 0 8px; }
 .role-card p{ color:var(--text-muted); font-size:.88rem; line-height:1.55; margin:0 0 18px; }
 .role-card .go{ font-family:var(--mono); font-size:.76rem; text-transform:uppercase; letter-spacing:.06em; }
@@ -153,6 +156,12 @@ a{ color:var(--accent); }
 .portal-features li::before{ content:'—'; color:var(--accent); flex-shrink:0; }
 .portal-side.instructor .portal-features li::before{ color:var(--gold); }
 .portal-form{ display:flex; align-items:center; justify-content:center; padding:24px; }
+
+/* ---- administrator announcement / maintenance banner ---- */
+.system-banner{
+  background:#2B2616; border-bottom:1px solid var(--warn); color:var(--text);
+  padding:10px 20px; font-size:.86rem; text-align:center; overflow-wrap:anywhere;
+}
 
 /* ---- live connection badge ---- */
 .conn-badge{

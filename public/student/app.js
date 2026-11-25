@@ -264,7 +264,9 @@
 
     socket.emit('exam:start', { topicKey, topicName: data.topicName, total: data.items.length });
     startIntegrityWatch();
-    showConsentThenStart((accepted) => {
+    // An administrator can switch camera monitoring off for everyone.
+    if (data.webcamMonitoring === false) setCamStatus('🎥 Camera monitoring off');
+    else showConsentThenStart((accepted) => {
       if (accepted) startWebcamMonitor();
       else setCamStatus('🎥 Camera monitoring declined');
     });
@@ -333,7 +335,9 @@
   }
 
   async function startExam(topicKey) {
-    const data = await (await fetch('/api/student/exam/' + topicKey, { headers: H })).json();
+    const examRes = await fetch('/api/student/exam/' + topicKey, { headers: H });
+    if (!examRes.ok) return;
+    const data = await examRes.json();
     buildExamView(data, async (responses, events, failed) => {
       const res = await fetch(`/api/student/exam/${topicKey}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events, forcedFail: failed }) });
       return res.json();
@@ -341,7 +345,9 @@
   }
 
   async function startRemediation(remId) {
-    const data = await (await fetch('/api/student/remediation/' + remId, { headers: H })).json();
+    const remRes = await fetch('/api/student/remediation/' + remId, { headers: H });
+    if (!remRes.ok) return;
+    const data = await remRes.json();
     buildExamView(data, async (responses, events, failed) => {
       const res = await fetch(`/api/student/exam/${data.topic}/submit`, { method: 'POST', headers: H, body: JSON.stringify({ responses, integrityEvents: events, forcedFail: failed }) });
       return res.json();

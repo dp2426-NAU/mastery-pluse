@@ -87,11 +87,14 @@ Both are served from the same Node process and the same port — this is a monol
 
 ## Database schema
 
-Nine tables, all created and migrated in `server/db.js`:
+Eleven tables, all created and migrated in `server/db.js`:
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `users` | Every login (student or instructor) | `username`, `password_hash`, `role`, `display_name` |
+| `users` | Every login (student, instructor or admin) | `username`, `password_hash`, `role`, `display_name`, `active`, `token_version`, `created_at`, `last_login_at` |
+| `settings` | Administrator overrides of system settings | `key`, `value` (JSON) |
+| `permissions` | Administrator overrides of role permissions | `key`, `allowed` |
+| `audit_log` | Every administrator change | `actor`, `action`, `target`, `detail`, `ts` |
 | `topics` | The five exam topics | `key`, `name` |
 | `items` | Every quiz/task/qa question | `topic_id`, `type`, `prompt`, `options`, `correct_index`, `misconceptions`, `keywords` |
 | `submissions` | One row per item per exam attempt | `user_id`, `topic_id`, `item_id`, `type`, `selected_index`, `response_text`, `auto_score`, `misconception_tag`, `confidence`, `status`, `exam_run`, `voided` |
@@ -106,13 +109,22 @@ Nine tables, all created and migrated in `server/db.js`:
 
 ## REST API reference
 
-All `/api/student/*` routes require a student JWT; all `/api/instructor/*` routes require an instructor JWT (`requireRole()` middleware in `server/auth.js`). Neither role can call the other's routes — verified directly in `tests/api.test.js`, not just asserted in a comment.
+All `/api/student/*` routes require a student JWT; all `/api/instructor/*` routes require an instructor JWT; all `/api/admin/*` routes require an administrator JWT (`requireRole()` middleware in `server/auth.js`). No role can call another's routes — verified directly in `tests/api.test.js`, not just asserted in a comment.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Unauthenticated uptime check |
 | POST | `/api/auth/student/login` | Student login → JWT |
 | POST | `/api/auth/instructor/login` | Instructor login → JWT |
+| POST | `/api/auth/admin/login` | Administrator login → JWT |
+| GET | `/api/system/status` | Unauthenticated: maintenance flag and announcement |
+| GET | `/api/admin/overview` | Account, access and activity counts |
+| GET / POST | `/api/admin/users` | List or create accounts |
+| PATCH / DELETE | `/api/admin/users/:id` | Change name, role or active state; delete if it has no exam records |
+| POST | `/api/admin/users/:id/reset-password` | Set a new password and end the account's sessions |
+| GET / PUT | `/api/admin/permissions` | Read or change role permissions |
+| GET / PUT | `/api/admin/settings` | Read or change system settings |
+| GET | `/api/admin/audit` | The 100 most recent administrator changes |
 | GET | `/api/student/topics` | List topics + this student's score in each, and whether each is `locked` |
 | GET | `/api/student/exam/:topicKey` | Fetch an exam's items (no answers included) — 403 if this topic is locked |
 | POST | `/api/student/exam/:topicKey/submit` | Submit responses; triggers grading, similarity check, live broadcasts |
@@ -223,4 +235,4 @@ Stated here plainly, the same honesty standard applied throughout the UI copy an
 - The webcam signal is head-pose/eye-closure *approximation*, not eye-tracking — lighting, camera angle, and glasses all affect it. The 3rd strike acts on that approximation directly, with no human check before the exam is scored 0% — a false positive genuinely fails a real attempt. The only recourse is after the fact (the instructor's **Grant retake**), and only if the student thinks to raise it.
 - No persistent disk on Render's free tier — the database resets on every deploy.
 - Free-tier Render spins down after 15 minutes idle.
-- No password reset flow, no multi-instructor role separation (any instructor account can do everything), and no i18n — all reasonable scope cuts for a course project, not oversights.
+- No self-service password reset (an administrator does it), permissions apply per role rather than per person, and no i18n — all reasonable scope cuts for a course project, not oversights.

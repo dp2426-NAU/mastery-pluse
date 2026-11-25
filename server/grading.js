@@ -1,13 +1,14 @@
 // Grading is pulled out of server.js so it can be unit-tested directly,
 // without spinning up Express or a socket connection.
 const db = require('./db');
+const { getSettings } = require('./settings');
 const { jaccardSimilarity, isComparable, SIMILARITY_THRESHOLD } = require('./similarity');
 
 const parseJSON = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } catch { return fallback; } };
 
-// 90s/item, floor of 4 minutes so a short remediation set isn't a 45-second sprint.
+// 90s/item by default (administrators can change it), floor of 4 minutes so a short remediation set isn't a 45-second sprint.
 function timeLimitFor(itemCount) {
-  return Math.max(240, itemCount * 90);
+  return Math.max(240, itemCount * getSettings().secondsPerQuestion);
 }
 
 function topicScoreFor(userId, topicId) {

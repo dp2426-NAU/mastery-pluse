@@ -16,6 +16,8 @@ const { login, verifyToken, requireRole } = require('./auth');
 const { parseJSON, timeLimitFor, topicScoreFor, classAverageFor, gradeAndStore } = require('./grading');
 const { validate, loginSchema, submitSchema, reviewSchema, remediateSchema } = require('./validation');
 const { loginLimiter, submitLimiter } = require('./rate-limit');
+const { getSettings, hasPermission, requirePermission } = require('./settings');
+const createAdminRouter = require('./admin');
 const { sendWebcamAlertEmail } = require('./mailer');
 
 const app = express();
@@ -56,6 +58,25 @@ app.post('/api/auth/instructor/login', loginLimiter, validate(loginSchema), (req
   res.json(result);
 });
 
+app.post('/api/auth/admin/login', loginLimiter, validate(loginSchema), (req, res) => {
+  const { username, password } = req.body;
+  const result = login(username, password, 'admin');
+  if (result.error) return res.status(401).json(result);
+  res.json(result);
+});
+
+// Public: what every page needs to show the announcement/maintenance banner.
+app.get('/api/system/status', (req, res) => {
+  const { maintenanceMode, announcement } = getSettings();
+  res.json({ maintenanceMode, announcement });
+});
+
+// ---------- Administrator API (see admin.js) ----------
+app.use('/api/admin', createAdminRouter({
+  io,
+  getLiveCounts: () => ({ studentsOnline: onlineStudents.size, activeExams: activeExams.size }),
+}));
+
 // ---------- Student API ----------
 app.get('/api/student/topics', requireRole('student'), (req, res) => {
   const topics = db.prepare('SELECT * FROM topics ORDER BY name').all();
@@ -65,7 +86,7 @@ app.get('/api/student/topics', requireRole('student'), (req, res) => {
   })));
 });
 
-app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
+app.get('/api/student/exam/:topicKey', requireRole('student'), requirePermission('student.take_exams'), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.params.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
   if (isTopicLocked(req.user.sub, topic.id)) {
@@ -75,7 +96,7 @@ app.get('/api/student/exam/:topicKey', requireRole('student'), (req, res) => {
   res.json({
     topic: topic.key,
     topicName: topic.name,
-    timeLimitSeconds: timeLimitFor(items.length),
+    timeLimitSeconds: timeLimitFor(items.length), webcamMonitoring: getSettings().webcamMonitoring,
     items: items.map(it => ({
       id: it.id, type: it.type, prompt: it.prompt,
       options: it.type === 'quiz' ? parseJSON(it.options, []) : undefined,
@@ -147,7 +168,7 @@ app.get('/api/student/remediation', requireRole('student'), (req, res) => {
   res.json(rows);
 });
 
-app.get('/api/student/remediation/:id', requireRole('student'), (req, res) => {
+app.get('/api/student/remediation/:id', requireRole('student'), requirePermission('student.practice'), (req, res) => {
   const rem = db.prepare('SELECT * FROM remediations WHERE id = ?').get(req.params.id);
   if (!rem) return res.status(404).json({ error: 'Not found.' });
   const ids = parseJSON(rem.item_ids, []);
@@ -155,7 +176,7 @@ app.get('/api/student/remediation/:id', requireRole('student'), (req, res) => {
   const items = ids.map(id => db.prepare('SELECT * FROM items WHERE id = ?').get(id)).filter(Boolean);
   res.json({
     topic: topic.key, topicName: topic.name, message: rem.message,
-    timeLimitSeconds: timeLimitFor(items.length),
+    timeLimitSeconds: timeLimitFor(items.length), webcamMonitoring: getSettings().webcamMonitoring,
     items: items.map(it => ({ id: it.id, type: it.type, prompt: it.prompt, options: it.type === 'quiz' ? parseJSON(it.options, []) : undefined })),
   });
 });
@@ -310,7 +331,7 @@ app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) =
   `).all();
   res.json(rows.map(r => ({
     id: r.id, studentName: r.studentName, topicKey: r.topicKey, topicName: r.topicName,
-    count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at, retakeGranted: !!r.resolved,
+    count: r.strike_count, snapshot: hasPermission('instructor.view_snapshots') ? r.snapshot : null, createdAt: r.created_at, retakeGranted: !!r.resolved,
   })));
 });
 
@@ -319,7 +340,7 @@ app.get('/api/instructor/webcam-alerts', requireRole('instructor'), (req, res) =
 // from here on, but never deleted — still visible, marked voided, in the
 // instructor drill-down) and unlocks the topic so the student can attempt
 // it again. Tells that exact student live, wherever they're logged in.
-app.post('/api/instructor/webcam-alerts/:id/grant-retake', requireRole('instructor'), (req, res) => {
+app.post('/api/instructor/webcam-alerts/:id/grant-retake', requireRole('instructor'), requirePermission('instructor.grant_retake'), (req, res) => {
   const alertId = Number(req.params.id);
   const alert = db.prepare(`
     SELECT wa.id, wa.user_id, wa.exam_run, wa.resolved, t.id AS topicId, t.key AS topicKey, t.name AS topicName,
@@ -379,7 +400,7 @@ app.get('/api/instructor/detail/:studentId/:topicKey', requireRole('instructor')
     SELECT id, strike_count, snapshot, created_at, resolved FROM webcam_alerts
     WHERE user_id = ? AND topic_id = ? ORDER BY created_at DESC
   `).all(studentId, topic.id).map((r) => ({
-    id: r.id, count: r.strike_count, snapshot: r.snapshot, createdAt: r.created_at, retakeGranted: !!r.resolved,
+    id: r.id, count: r.strike_count, snapshot: hasPermission('instructor.view_snapshots') ? r.snapshot : null, createdAt: r.created_at, retakeGranted: !!r.resolved,
   }));
 
   res.json({
@@ -412,7 +433,7 @@ app.get('/api/instructor/pending-qa', requireRole('instructor'), (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/instructor/review', requireRole('instructor'), validate(reviewSchema), (req, res) => {
+app.post('/api/instructor/review', requireRole('instructor'), requirePermission('instructor.review_qa'), validate(reviewSchema), (req, res) => {
   const { submissionId, score } = req.body;
   const clamped = Math.max(0, Math.min(100, score));
   db.prepare("UPDATE submissions SET auto_score = ?, status = 'graded' WHERE id = ?").run(clamped, submissionId);
@@ -428,7 +449,7 @@ app.post('/api/instructor/review', requireRole('instructor'), validate(reviewSch
   res.json({ ok: true });
 });
 
-app.post('/api/instructor/remediate', requireRole('instructor'), validate(remediateSchema), (req, res) => {
+app.post('/api/instructor/remediate', requireRole('instructor'), requirePermission('instructor.remediate'), validate(remediateSchema), (req, res) => {
   const topic = db.prepare('SELECT * FROM topics WHERE key = ?').get(req.body.topicKey);
   if (!topic) return res.status(404).json({ error: 'Unknown topic.' });
 
@@ -484,6 +505,10 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   const { role, sub: userId, name } = socket.user;
+  // A private room for exactly this user, on whichever tabs they have open:
+  // used for a retake being granted, or an administrator ending the session.
+  socket.join('user:' + userId);
+  if (role === 'admin') return;
   socket.join(role === 'instructor' ? 'instructors' : 'students');
 
   if (role === 'instructor') {
@@ -495,9 +520,6 @@ io.on('connection', (socket) => {
   // ---- student presence: who's connected, and what they're mid-way through ----
   if (!onlineStudents.has(userId)) onlineStudents.set(userId, new Set());
   onlineStudents.get(userId).add(socket.id);
-  // A private room for exactly this student — used to notify them live
-  // (e.g. a retake being granted) on whichever tab they're actually using.
-  socket.join('user:' + userId);
   broadcastOnline();
 
   socket.on('exam:start', ({ topicKey, topicName, total }) => {
@@ -553,7 +575,7 @@ io.on('connection', (socket) => {
     const payload = {
       alertId: inserted.lastInsertRowid,
       studentId: userId, studentName: name, topicKey: topic.key, topicName: topic.name,
-      count, snapshot: safeSnapshot, ts: Date.now(),
+      count, snapshot: hasPermission('instructor.view_snapshots') ? safeSnapshot : null, ts: Date.now(),
     };
     io.to('instructors').emit('integrity:webcamAlert', payload);
 

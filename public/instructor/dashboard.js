@@ -119,7 +119,8 @@
       btn.onclick = async (e) => {
         e.stopPropagation();
         btn.textContent = 'Sending…';
-        await fetch('/api/instructor/remediate', { method: 'POST', headers: H, body: JSON.stringify({ topicKey: btn.dataset.topic }) });
+        const res = await fetch('/api/instructor/remediate', { method: 'POST', headers: H, body: JSON.stringify({ topicKey: btn.dataset.topic }) });
+        if (!res.ok) { btn.textContent = 'Remediate'; return; }
         btn.textContent = 'Sent ✓';
         showToast(`Remediation broadcast for ${btn.dataset.name} — students will see it now.`, 'good');
         loadRemediationImpact();
@@ -182,7 +183,8 @@
       btn.onclick = async () => {
         btn.disabled = true;
         btn.textContent = 'Granting…';
-        await fetch(`/api/instructor/webcam-alerts/${btn.dataset.id}/grant-retake`, { method: 'POST', headers: H });
+        const res = await fetch(`/api/instructor/webcam-alerts/${btn.dataset.id}/grant-retake`, { method: 'POST', headers: H });
+        if (!res.ok) { btn.disabled = false; btn.textContent = 'Grant retake'; return; }
         showToast('Retake granted — the student can try again, and this attempt no longer counts.', 'good');
         openDetail(studentId, topicKey, studentName, topicName);
         loadHeatmap();
@@ -311,7 +313,8 @@
       btn.onclick = async () => {
         btn.disabled = true;
         btn.textContent = 'Granting…';
-        await fetch(`/api/instructor/webcam-alerts/${btn.dataset.id}/grant-retake`, { method: 'POST', headers: H });
+        const res = await fetch(`/api/instructor/webcam-alerts/${btn.dataset.id}/grant-retake`, { method: 'POST', headers: H });
+        if (!res.ok) { btn.disabled = false; btn.textContent = 'Grant retake'; return; }
         showToast('Retake granted — the student can try again, and this attempt no longer counts.', 'good');
         loadWebcamAlerts();
         loadHeatmap();

@@ -13,8 +13,31 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('student','instructor')),
-  display_name TEXT NOT NULL
+  role TEXT NOT NULL CHECK(role IN ('student','instructor','admin')),
+  display_name TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,        -- 0 = an administrator disabled this login
+  token_version INTEGER NOT NULL DEFAULT 0, -- bumped to invalidate every existing session
+  created_at TEXT,
+  last_login_at TEXT
+);
+
+-- Administrator-controlled configuration; defaults live in settings.js.
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL -- JSON
+);
+CREATE TABLE IF NOT EXISTS permissions (
+  key TEXT PRIMARY KEY,
+  allowed INTEGER NOT NULL
+);
+-- Who changed what. Stores usernames, so entries outlive deleted accounts.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT,
+  detail TEXT,
+  ts TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS topics (
@@ -119,5 +142,42 @@ ensureColumn('submissions', 'confidence', 'confidence INTEGER');
 ensureColumn('remediations', 'before_avg', 'before_avg REAL');
 ensureColumn('webcam_alerts', 'resolved', 'resolved INTEGER NOT NULL DEFAULT 0');
 ensureColumn('submissions', 'voided', 'voided INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'active', 'active INTEGER NOT NULL DEFAULT 1');
+ensureColumn('users', 'token_version', 'token_version INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'created_at', 'created_at TEXT');
+ensureColumn('users', 'last_login_at', 'last_login_at TEXT');
+
+// SQLite can't alter a CHECK constraint, so a users table from before the
+// admin role existed is rebuilt. Foreign keys are off only for the swap.
+const usersDdl = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get().sql;
+if (!usersDdl.includes("'admin'")) {
+  db.pragma('foreign_keys = OFF');
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE users_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('student','instructor','admin')),
+        display_name TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        token_version INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT,
+        last_login_at TEXT
+      );
+      INSERT INTO users_new SELECT id, username, password_hash, role, display_name, active, token_version, created_at, last_login_at FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+    `);
+  })();
+  db.pragma('foreign_keys = ON');
+}
+
+// ALTER TABLE can't add a column defaulting to datetime('now'), so fill it here.
+db.exec(`
+  UPDATE users SET created_at = datetime('now') WHERE created_at IS NULL;
+  CREATE TRIGGER IF NOT EXISTS users_created_at AFTER INSERT ON users WHEN NEW.created_at IS NULL
+  BEGIN UPDATE users SET created_at = datetime('now') WHERE id = NEW.id; END;
+`);
 
 module.exports = db;

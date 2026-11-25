@@ -1,3 +1,4 @@
+require('dotenv').config({ quiet: true });
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -23,6 +24,8 @@ const DEMO_USERS = [
   { username: 'student8', password: 'Pulse#Student8', role: 'student', display_name: 'Daniel Kim' },
   { username: 'student9', password: 'Pulse#Student9', role: 'student', display_name: 'Emma Johansson' },
   { username: 'student10', password: 'Pulse#Student10', role: 'student', display_name: 'Noah Fernandez' },
+  // Set ADMIN_PASSWORD on any real deployment: the fallback is public.
+  { username: 'admin.demo', password: process.env.ADMIN_PASSWORD || 'AdminPulse#2026', role: 'admin', display_name: 'System Administrator' },
 ];
 
 function seed() {
@@ -64,7 +67,10 @@ function seed() {
   tx();
   console.log('Seed complete.');
   console.log('Demo credentials:');
-  for (const u of DEMO_USERS) console.log(`  ${u.role.padEnd(10)} ${u.username} / ${u.password}`);
+  for (const u of DEMO_USERS) {
+    const shown = u.role === 'admin' && process.env.ADMIN_PASSWORD ? '(from ADMIN_PASSWORD)' : u.password;
+    console.log(`  ${u.role.padEnd(10)} ${u.username} / ${shown}`);
+  }
 }
 
 seed();

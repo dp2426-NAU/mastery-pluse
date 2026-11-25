@@ -12,6 +12,25 @@
     return stack;
   }
 
+  // Responses the server sends when an administrator has changed something
+  // under a signed-in user. Handled here so every call site is covered.
+  function endSession(reason) {
+    const user = JSON.parse(sessionStorage.getItem('mp_user') || 'null');
+    sessionStorage.removeItem('mp_token'); sessionStorage.removeItem('mp_user');
+    sessionStorage.setItem('mp_notice', reason);
+    window.location.href = `/${user ? user.role : 'student'}/login.html`;
+  }
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const res = await nativeFetch(...args);
+    if (res.status === 403 || res.status === 503) {
+      const body = await res.clone().json().catch(() => ({}));
+      if (body.code === 'SESSION_INVALID') endSession('Your session has ended. Please sign in again.');
+      else if (body.code) showToast(body.error, 'warn');
+    }
+    return res;
+  };
+
   window.showToast = function showToast(message, kind) {
     const stack = ensureToastStack();
     const el = document.createElement('div');
@@ -36,6 +55,8 @@
     badge.innerHTML = '<span class="dot"></span>Connecting…';
     who.parentNode.insertBefore(badge, who);
 
+    socket.on('session:revoked', ({ reason }) => endSession(reason));
+    socket.on('system:changed', () => { if (window.refreshSystemBanner) window.refreshSystemBanner(); });
     socket.on('connect', () => {
       badge.className = 'conn-badge live';
       badge.innerHTML = '<span class="dot"></span>Live';
